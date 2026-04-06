@@ -196,7 +196,8 @@ class DetailPanel(private val project: Project) : JPanel(BorderLayout()) {
 
         // Method name
         gbc.gridx = col++; gbc.insets = Insets(0, 0, 0, 8)
-        panel.add(JBLabel("${endpoint.methodName}()").apply { font = font.deriveFont(Font.BOLD, 13f) }, gbc)
+        val methodDisplayName = if (endpoint.controllerName != null) "${endpoint.methodName}()" else endpoint.methodName
+        panel.add(JBLabel(methodDisplayName).apply { font = font.deriveFont(Font.BOLD, 13f) }, gbc)
 
         // Controller
         endpoint.controllerName?.let { ctrl ->

@@ -46,7 +46,7 @@ namespace JetBrains.Rider.Model
     [NotNull] public IRdEndpoint<Unit, Unit> ClearCache => _ClearCache;
     [NotNull] public ISignal<List<RdApiEndpoint>> EndpointsUpdated => _EndpointsUpdated;
     [NotNull] public ISignal<string> NavigateToEndpoint => _NavigateToEndpoint;
-
+    
     //private fields
     [NotNull] private readonly RdCall<Unit, List<RdApiEndpoint>> _GetEndpoints;
     [NotNull] private readonly RdCall<Unit, Unit> _ClearCache;
@@ -65,7 +65,7 @@ namespace JetBrains.Rider.Model
       if (clearCache == null) throw new ArgumentNullException("clearCache");
       if (endpointsUpdated == null) throw new ArgumentNullException("endpointsUpdated");
       if (navigateToEndpoint == null) throw new ArgumentNullException("navigateToEndpoint");
-
+      
       _GetEndpoints = getEndpoints;
       _ClearCache = clearCache;
       _EndpointsUpdated = endpointsUpdated;
@@ -92,7 +92,7 @@ namespace JetBrains.Rider.Model
     
     public static  CtxWriteDelegate<List<RdApiEndpoint>> WriteRdApiEndpointList = RdApiEndpoint.Write.List();
     
-    protected override long SerializationHash => 5628147192222421613L;
+    protected override long SerializationHash => -3893942425860350789L;
     
     protected override Action<ISerializers> Register => RegisterDeclaredTypesSerializers;
     public static void RegisterDeclaredTypesSerializers(ISerializers serializers)

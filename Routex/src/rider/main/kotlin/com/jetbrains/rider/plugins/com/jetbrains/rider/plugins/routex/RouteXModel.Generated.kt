@@ -43,7 +43,7 @@ class RouteXModel private constructor(
         
         private val __RdApiEndpointListSerializer = RdApiEndpoint.list()
         
-        const val serializationHash = 5628147192222421613L
+        const val serializationHash = -3893942425860350789L
         
     }
     override val serializersOwner: ISerializersOwner get() = RouteXModel

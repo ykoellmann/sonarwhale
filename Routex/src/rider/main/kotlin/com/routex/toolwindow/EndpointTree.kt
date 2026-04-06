@@ -28,7 +28,8 @@ import javax.swing.tree.TreeSelectionModel
 
 /** Schema node: the detected endpoint (not directly runnable without a SavedRequest). */
 class EndpointNode(val endpoint: ApiEndpoint) {
-    override fun toString() = "${endpoint.httpMethod.name.padEnd(7)} ${endpoint.methodName}()"
+    private fun displayName() = if (endpoint.controllerName != null) "${endpoint.methodName}()" else endpoint.methodName
+    override fun toString() = "${endpoint.httpMethod.name.padEnd(7)} ${displayName()}"
 }
 
 /** A named, runnable request under an EndpointNode. */
@@ -209,7 +210,8 @@ private class EndpointTreeCellRenderer : ColoredTreeCellRenderer() {
             is EndpointNode -> {
                 val ep = obj.endpoint
                 append(ep.httpMethod.name.padEnd(7), SimpleTextAttributes(SimpleTextAttributes.STYLE_BOLD, methodColor(ep.httpMethod)))
-                append(" ${ep.methodName}()", SimpleTextAttributes.REGULAR_ATTRIBUTES)
+                val displayName = if (ep.controllerName != null) "${ep.methodName}()" else ep.methodName
+                append(" $displayName", SimpleTextAttributes.REGULAR_ATTRIBUTES)
                 if (ep.meta.analysisWarnings.isNotEmpty())
                     append(" ⚠", SimpleTextAttributes(SimpleTextAttributes.STYLE_PLAIN, JBColor.YELLOW))
             }
