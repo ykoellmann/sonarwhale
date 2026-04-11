@@ -1,17 +1,21 @@
 package com.routex.model
 
-enum class SupportedLanguage {
-    CSHARP, PYTHON, JAVA, TYPESCRIPT, GO
-}
-
 enum class HttpMethod {
     GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS
 }
 
-enum class ParameterSource {
-    PATH, QUERY, BODY, HEADER, FORM
+enum class ParameterLocation {
+    PATH, QUERY, HEADER, COOKIE
 }
 
 enum class AuthType {
-    BEARER, API_KEY, BASIC, NONE
+    NONE, BEARER, API_KEY, BASIC, OAUTH2
+}
+
+enum class EndpointSource {
+    OPENAPI_SERVER, OPENAPI_FILE, OPENAPI_STATIC
+}
+
+enum class EndpointStatus {
+    ACTIVE, ADDED, MODIFIED, REMOVED
 }

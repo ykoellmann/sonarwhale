@@ -6,19 +6,15 @@ import com.intellij.openapi.actionSystem.ActionToolbar
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.DefaultActionGroup
-import com.intellij.openapi.fileEditor.OpenFileDescriptor
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.ui.Messages
-import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.ui.JBColor
 import com.intellij.ui.OnePixelSplitter
 import com.intellij.ui.SearchTextField
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
-import com.routex.RouteXService
-import com.routex.RouteXStateService
 import com.routex.model.ApiEndpoint
-import com.routex.model.SavedRequest
+import com.routex.service.EnvironmentService
+import com.routex.service.RouteIndexService
 import java.awt.BorderLayout
 import java.awt.FlowLayout
 import javax.swing.ComboBoxModel
@@ -46,7 +42,7 @@ class RouteXPanel(private val project: Project) : JPanel(BorderLayout()) {
     private var allEndpoints: List<ApiEndpoint> = emptyList()
 
     init {
-        val service = RouteXService.getInstance(project)
+        val service = RouteIndexService.getInstance(project)
 
         val toolbar = buildToolbar()
 
@@ -75,51 +71,24 @@ class RouteXPanel(private val project: Project) : JPanel(BorderLayout()) {
             detailPanel.showController(node)
         }
 
-        endpointTree.onGoToSource = { endpoint ->
-            val vf = LocalFileSystem.getInstance().findFileByPath(endpoint.filePath)
-            if (vf != null) OpenFileDescriptor(project, vf, endpoint.lineNumber - 1, 0).navigate(true)
-        }
-
         endpointTree.onRequestSelected = { endpoint, request ->
             detailPanel.showRequest(endpoint, request)
         }
 
-        endpointTree.onAddRequest = { endpoint ->
-            val name = Messages.showInputDialog(project, "Request name:", "New Request", null)
-                ?.takeIf { it.isNotBlank() }
-            if (name != null) {
-                val newReq = SavedRequest(name = name)
-                RouteXStateService.getInstance(project).upsertRequest(endpoint.id, newReq)
-                endpointTree.refreshTree()
-                detailPanel.showRequest(endpoint, newReq)
-            }
-        }
-
-        detailPanel.onRequestSaved = {
-            endpointTree.refreshTree()
-        }
-
-        endpointTree.onRenameRequest = { endpoint, request ->
-            val newName = Messages.showInputDialog(project, "Request name:", "Rename Request", null, request.name, null)
-                ?.takeIf { it.isNotBlank() }
-            if (newName != null) {
-                RouteXStateService.getInstance(project).upsertRequest(endpoint.id, request.copy(name = newName))
-                endpointTree.refreshTree()
-                detailPanel.updateRequestName(endpoint.id, request.id, newName)
-            }
+        // After saving a request, refresh that endpoint's sub-nodes in the tree
+        detailPanel.requestPanel.onRequestSaved = {
+            val epId = detailPanel.requestPanel.currentEndpointId
+            if (epId != null) endpointTree.refreshRequests(epId)
         }
 
         service.addSelectionListener { id ->
             endpointTree.selectEndpoint(id)
         }
 
-        // Gutter-triggered: select endpoint, load the request, and send immediately
-        service.addRunRequestListener { endpointId, requestId ->
+        service.addRunRequestListener { endpointId, _ ->
             endpointTree.selectEndpoint(endpointId)
             val endpoint = service.endpoints.firstOrNull { it.id == endpointId } ?: return@addRunRequestListener
-            val request = RouteXStateService.getInstance(project).getRequest(endpointId, requestId) ?: return@addRunRequestListener
-            detailPanel.showRequest(endpoint, request)
-            detailPanel.triggerSendRequest()
+            detailPanel.showEndpoint(endpoint)
         }
 
         searchField.getTextEditor().document.addDocumentListener(object : DocumentListener {
@@ -139,25 +108,28 @@ class RouteXPanel(private val project: Project) : JPanel(BorderLayout()) {
     }
 
     private fun buildEnvPanel(): JPanel {
-        val stateService = RouteXStateService.getInstance(project)
+        val envService = EnvironmentService.getInstance(project)
 
         envCombo.addActionListener {
             if (suppressEnvComboListener) return@addActionListener
             val idx = envCombo.selectedIndex
-            val envs = stateService.getEnvironments()
-            stateService.setActiveEnvironment(if (idx <= 0) "" else envs.getOrNull(idx - 1)?.id ?: "")
-            detailPanel.refreshComputedUrl()
+            val envs = envService.getAll()
+            val selected = envs.getOrNull(idx)
+            if (selected != null) {
+                envService.setActive(selected.id)
+                RouteIndexService.getInstance(project).refresh()
+            }
         }
 
         val editButton = JButton(AllIcons.General.Settings).apply {
             isBorderPainted = false
             isContentAreaFilled = false
-            toolTipText = "Manage environments"
+            toolTipText = "Manage sources & environments"
             addActionListener {
                 RouteXSettingsDialog(project).apply {
                     if (showAndGet()) {
                         refreshEnvCombo()
-                        detailPanel.refreshComputedUrl()
+                        RouteIndexService.getInstance(project).refresh()
                     }
                 }
             }
@@ -173,16 +145,16 @@ class RouteXPanel(private val project: Project) : JPanel(BorderLayout()) {
     private fun refreshEnvCombo() {
         suppressEnvComboListener = true
         try {
-            val stateService = RouteXStateService.getInstance(project)
-            val envs = stateService.getEnvironments()
-            val activeId = stateService.getActiveEnvironment()?.id
+            val envService = EnvironmentService.getInstance(project)
+            val envs = envService.getAll()
+            val activeId = envService.getActive()?.id
 
             envCombo.removeAllItems()
-            envCombo.addItem("No Environment")
             envs.forEach { envCombo.addItem(it.name) }
+            if (envs.isEmpty()) envCombo.addItem("No source configured")
 
-            val activeIdx = if (activeId != null) envs.indexOfFirst { it.id == activeId } + 1 else 0
-            envCombo.selectedIndex = activeIdx.coerceIn(0, envCombo.itemCount - 1)
+            val activeIdx = if (activeId != null) envs.indexOfFirst { it.id == activeId } else 0
+            envCombo.selectedIndex = activeIdx.coerceIn(0, (envCombo.itemCount - 1).coerceAtLeast(0))
         } finally {
             suppressEnvComboListener = false
         }
@@ -197,24 +169,24 @@ class RouteXPanel(private val project: Project) : JPanel(BorderLayout()) {
         val query = searchField.text.trim().lowercase()
         val filtered = if (query.isEmpty()) allEndpoints
         else allEndpoints.filter {
-            it.methodName.lowercase().contains(query) ||
-            it.route.lowercase().contains(query) ||
-            it.httpMethod.name.lowercase().contains(query) ||
-            (it.controllerName?.lowercase()?.contains(query) == true)
+            it.path.lowercase().contains(query) ||
+            it.method.name.lowercase().contains(query) ||
+            it.tags.any { tag -> tag.lowercase().contains(query) } ||
+            (it.summary?.lowercase()?.contains(query) == true)
         }
         endpointTree.updateEndpoints(filtered)
     }
 
     private fun buildToolbar(): ActionToolbar {
         val group = DefaultActionGroup()
-        group.add(object : AnAction("Refresh", "Refresh changed files only (incremental)", AllIcons.Actions.Refresh) {
+        group.add(object : AnAction("Refresh", "Refresh OpenAPI from source", AllIcons.Actions.Refresh) {
             override fun actionPerformed(e: AnActionEvent) {
-                RouteXService.getInstance(project).refresh()
+                RouteIndexService.getInstance(project).refresh()
             }
         })
-        group.add(object : AnAction("Re-Scan", "Clear cache and re-analyse all files", AllIcons.Actions.ForceRefresh) {
+        group.add(object : AnAction("Re-Scan", "Clear cache and re-fetch OpenAPI", AllIcons.Actions.ForceRefresh) {
             override fun actionPerformed(e: AnActionEvent) {
-                RouteXService.getInstance(project).reScan()
+                RouteIndexService.getInstance(project).reScan()
             }
         })
         val toolbar = ActionManager.getInstance().createActionToolbar("RouteX.Toolbar", group, true)

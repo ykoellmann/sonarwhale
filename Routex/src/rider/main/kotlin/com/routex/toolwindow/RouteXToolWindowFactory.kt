@@ -5,7 +5,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
 import com.intellij.ui.content.ContentFactory
-import com.routex.RouteXService
+import com.routex.service.RouteIndexService
 
 class RouteXToolWindowFactory : ToolWindowFactory, DumbAware {
 
@@ -14,7 +14,7 @@ class RouteXToolWindowFactory : ToolWindowFactory, DumbAware {
         val content = ContentFactory.getInstance().createContent(panel, "", false)
         toolWindow.contentManager.addContent(content)
 
-        val service = RouteXService.getInstance(project)
+        val service = RouteIndexService.getInstance(project)
 
         // Seed with whatever the service already has cached (e.g. from startup activity)
         panel.updateEndpoints(service.endpoints)

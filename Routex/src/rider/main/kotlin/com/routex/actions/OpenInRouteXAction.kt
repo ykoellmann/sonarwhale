@@ -6,29 +6,26 @@ import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CommonDataKeys
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.wm.ToolWindowManager
-import com.routex.RouteXService
+
+import com.routex.service.RouteIndexService
 
 /**
  * Editor context menu action for C# files — finds the nearest endpoint above the
  * caret by file path + line number, then focuses the RouteX tool window and selects it.
  *
- * No PSI analysis is done here; we match against the already-cached endpoint list in
- * RouteXService to keep the action fast and index-independent.
+ * Matching is done via psiNavigationTarget (populated in Phase 4). Until then, the action
+ * selects the first endpoint whose psiNavigationTarget starts with the current file path.
  */
 class OpenInRouteXAction : AnAction("Open in RouteX"), DumbAware {
 
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
-        val editor  = e.getData(CommonDataKeys.EDITOR) ?: return
         val file    = e.getData(CommonDataKeys.VIRTUAL_FILE) ?: return
 
-        val caretLine = editor.caretModel.logicalPosition.line + 1 // 1-based
         val filePath  = file.path
-
-        val service = RouteXService.getInstance(project)
+        val service = RouteIndexService.getInstance(project)
         val match = service.endpoints
-            .filter { it.filePath == filePath && it.lineNumber <= caretLine }
-            .maxByOrNull { it.lineNumber } ?: return
+            .firstOrNull { it.psiNavigationTarget?.startsWith(filePath) == true } ?: return
 
         // Show the tool window, then select the endpoint
         ToolWindowManager.getInstance(project).getToolWindow("RouteX")?.show(null)

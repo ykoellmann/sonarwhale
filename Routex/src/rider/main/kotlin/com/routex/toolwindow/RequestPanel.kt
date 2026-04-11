@@ -10,7 +10,10 @@ import com.intellij.util.ui.JBUI
 import com.routex.RouteXStateService
 import com.routex.model.ApiEndpoint
 import com.routex.model.ApiParameter
-import com.routex.model.ParameterSource
+import com.routex.model.ApiSchema
+import com.routex.model.AuthType
+import com.routex.model.toJsonTemplate
+import com.routex.model.ParameterLocation
 import com.routex.model.SavedRequest
 import java.awt.BorderLayout
 import java.awt.Color
@@ -40,6 +43,7 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
 
     // Request identity
     private var currentEndpoint: ApiEndpoint? = null
+    val currentEndpointId: String? get() = currentEndpoint?.id
     private var currentRequest: SavedRequest? = null
 
     // Backing field for request name — edited via the header in DetailPanel
@@ -152,8 +156,8 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
         currentRequestName = request.name
         updateDefaultButtonState(request.isDefault)
 
-        val hasParams = endpoint.parameters.any { it.source == ParameterSource.PATH || it.source == ParameterSource.QUERY }
-        val hasBody   = endpoint.parameters.any { it.source == ParameterSource.BODY }
+        val hasParams = endpoint.parameters.any { it.location == ParameterLocation.PATH || it.location == ParameterLocation.QUERY }
+        val hasBody   = endpoint.requestBody != null
 
         // Params
         paramsTable.setRows(buildParamRows(endpoint, request.paramValues, request.paramEnabled))
@@ -171,7 +175,7 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
                 bodyPanel.setContent(BodyContent.Raw(buildBodyTemplate(endpoint), "application/json"))
             }
         } else {
-            val isGetOrHead = endpoint.httpMethod.name in listOf("GET", "HEAD")
+            val isGetOrHead = endpoint.method.name in listOf("GET", "HEAD")
             bodyPanel.setContent(if (isGetOrHead) BodyContent.None else BodyContent.Raw("", "application/json"))
         }
 
@@ -194,8 +198,8 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
         currentRequestName = "Default"
         updateDefaultButtonState(true)
 
-        val hasParams = endpoint.parameters.any { it.source == ParameterSource.PATH || it.source == ParameterSource.QUERY }
-        val hasBody   = endpoint.parameters.any { it.source == ParameterSource.BODY }
+        val hasParams = endpoint.parameters.any { it.location == ParameterLocation.PATH || it.location == ParameterLocation.QUERY }
+        val hasBody   = endpoint.requestBody != null
 
         paramsTable.setRows(buildParamRows(endpoint, emptyMap()))
         headersTable.setRows(buildHeadersTemplate(endpoint))
@@ -234,10 +238,10 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
         savedValues: Map<String, String>,
         savedEnabled: Map<String, Boolean> = emptyMap()
     ): List<NameValueRow> {
-        val pathParams  = endpoint.parameters.filter { it.source == ParameterSource.PATH }
-        val queryParams = endpoint.parameters.filter { it.source == ParameterSource.QUERY }
+        val pathParams  = endpoint.parameters.filter { it.location == ParameterLocation.PATH }
+        val queryParams = endpoint.parameters.filter { it.location == ParameterLocation.QUERY }
         return (pathParams + queryParams).map { param ->
-            val value   = savedValues[param.name] ?: param.defaultValue ?: ""
+            val value   = savedValues[param.name] ?: param.schema?.example?.toString() ?: ""
             val enabled = savedEnabled[param.name] ?: true
             NameValueRow(enabled = enabled, key = param.name, value = value, description = buildParamDescription(param))
         }
@@ -245,38 +249,33 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
 
     private fun buildParamDescription(param: ApiParameter): String {
         val parts = mutableListOf<String>()
-        parts += param.source.name.lowercase()
+        parts += param.location.name.lowercase()
         if (param.required) parts += "required"
-        if (param.type.isNotEmpty()) parts += param.type
+        param.schema?.type?.let { parts += it }
         return parts.joinToString(", ")
     }
 
     private fun buildHeadersTemplate(endpoint: ApiEndpoint): List<NameValueRow> {
         val rows = mutableListOf<NameValueRow>()
-        if (endpoint.auth?.required == true) {
-            rows += NameValueRow(true, "Authorization", "Bearer <token>", "auth")
+        endpoint.auth?.let { auth ->
+            if (auth.type != AuthType.NONE) {
+                val value = when (auth.type) {
+                    AuthType.BEARER  -> "Bearer <token>"
+                    AuthType.BASIC   -> "Basic <base64>"
+                    AuthType.API_KEY -> "<key>"
+                    else             -> "<token>"
+                }
+                rows += NameValueRow(true, "Authorization", value, "auth")
+            }
         }
-        endpoint.parameters.filter { it.source == ParameterSource.HEADER }.forEach { param ->
+        endpoint.parameters.filter { it.location == ParameterLocation.HEADER }.forEach { param ->
             rows += NameValueRow(true, param.name, "", "header param")
         }
         return rows
     }
 
     private fun buildBodyTemplate(endpoint: ApiEndpoint): String {
-        val bodyParam = endpoint.parameters.firstOrNull { it.source == ParameterSource.BODY } ?: return ""
-        val schema = bodyParam.schema
-        if (schema != null && schema.properties.isNotEmpty()) {
-            val fields = schema.properties.joinToString(",\n  ") { prop ->
-                when {
-                    prop.type.lowercase().contains("string") -> "\"${prop.name}\": \"\""
-                    prop.type.lowercase() in listOf("int", "long", "double", "float", "decimal") -> "\"${prop.name}\": 0"
-                    prop.type.lowercase() == "bool" || prop.type.lowercase() == "boolean" -> "\"${prop.name}\": false"
-                    else -> "\"${prop.name}\": null"
-                }
-            }
-            return "{\n  $fields\n}"
-        }
-        return "// ${bodyParam.type}\n{\n  \n}"
+        return endpoint.requestBody?.toJsonTemplate() ?: "{}"
     }
 
     private fun updateComputedUrl() {
@@ -284,10 +283,10 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
 
         val endpoint = currentEndpoint ?: run { computedUrlField.text = ""; return }
         val base = baseUrlField.text.trimEnd('/')
-        var route = endpoint.route
+        var route = endpoint.path
 
         val paramRows = paramsTable.getRows()
-        endpoint.parameters.filter { it.source == ParameterSource.PATH }.forEach { param ->
+        endpoint.parameters.filter { it.location == ParameterLocation.PATH }.forEach { param ->
             val row = paramRows.firstOrNull { it.key == param.name }
             val v = if (row?.enabled == true) row.value else ""
             val pattern = Regex("\\{${Regex.escape(param.name)}(?::[^}]*)??\\??\\}")
@@ -295,7 +294,7 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
         }
 
         val query = endpoint.parameters
-            .filter { it.source == ParameterSource.QUERY }
+            .filter { it.location == ParameterLocation.QUERY }
             .mapNotNull { param ->
                 val row = paramRows.firstOrNull { it.key == param.name } ?: return@mapNotNull null
                 if (!row.enabled || row.value.isEmpty()) null
@@ -393,20 +392,20 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
                 val hasContentType = headerRows.any { it.key.trim().equals("content-type", ignoreCase = true) }
 
                 when (val bc = bodyContent) {
-                    is BodyContent.None -> when (endpoint.httpMethod.name) {
+                    is BodyContent.None -> when (endpoint.method.name) {
                         "GET", "HEAD" -> builder.GET()
                         "DELETE"      -> builder.DELETE()
-                        else          -> builder.method(endpoint.httpMethod.name, HttpRequest.BodyPublishers.noBody())
+                        else          -> builder.method(endpoint.method.name, HttpRequest.BodyPublishers.noBody())
                     }
                     is BodyContent.Raw -> {
                         if (!hasContentType) builder.header("Content-Type", bc.contentType)
                         val publisher = HttpRequest.BodyPublishers.ofString(bc.text)
-                        when (endpoint.httpMethod.name) {
+                        when (endpoint.method.name) {
                             "POST"        -> builder.POST(publisher)
                             "PUT"         -> builder.PUT(publisher)
                             "DELETE"      -> builder.DELETE()
                             "GET", "HEAD" -> builder.GET()
-                            else          -> builder.method(endpoint.httpMethod.name, publisher)
+                            else          -> builder.method(endpoint.method.name, publisher)
                         }
                     }
                     is BodyContent.FormData -> {
@@ -416,19 +415,19 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
                                 "${URLEncoder.encode(it.key, "UTF-8")}=${URLEncoder.encode(it.value, "UTF-8")}"
                             }
                         val publisher = HttpRequest.BodyPublishers.ofString(encoded)
-                        when (endpoint.httpMethod.name) {
+                        when (endpoint.method.name) {
                             "POST" -> builder.POST(publisher)
                             "PUT"  -> builder.PUT(publisher)
-                            else   -> builder.method(endpoint.httpMethod.name, publisher)
+                            else   -> builder.method(endpoint.method.name, publisher)
                         }
                     }
                     is BodyContent.Binary -> {
                         val path = Paths.get(bc.filePath)
                         val publisher = HttpRequest.BodyPublishers.ofFile(path)
-                        when (endpoint.httpMethod.name) {
+                        when (endpoint.method.name) {
                             "POST" -> builder.POST(publisher)
                             "PUT"  -> builder.PUT(publisher)
-                            else   -> builder.method(endpoint.httpMethod.name, publisher)
+                            else   -> builder.method(endpoint.method.name, publisher)
                         }
                     }
                 }

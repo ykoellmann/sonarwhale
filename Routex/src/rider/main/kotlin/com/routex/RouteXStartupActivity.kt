@@ -3,11 +3,12 @@ package com.routex
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.startup.ProjectActivity
 import com.routex.gutter.RouteXGutterService
+import com.routex.service.RouteIndexService
 
 class RouteXStartupActivity : ProjectActivity {
     override suspend fun execute(project: Project) {
-        // Eagerly initialize gutter services so they can register their editor listeners
+        // Eagerly initialize gutter service so it can register its editor listeners
         RouteXGutterService.getInstance(project)
-        RouteXService.getInstance(project).refresh()
+        RouteIndexService.getInstance(project).refresh()
     }
 }

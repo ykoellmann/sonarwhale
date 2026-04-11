@@ -58,9 +58,18 @@ tasks.compileKotlin {
     kotlinOptions { jvmTarget = "21" }
 }
 
+val isMac = Os.isFamily(Os.FAMILY_MAC)
+
 val setBuildTool by tasks.registering {
     doLast {
-        extra["executable"] = "/opt/homebrew/bin/dotnet"
+        // Resolve dotnet executable: vswhere on Windows, Homebrew path on macOS, PATH on Linux
+        val dotnetExe = when {
+            isWindows -> "/opt/homebrew/bin/dotnet" // overridden below via vswhere
+            isMac     -> listOf("/opt/homebrew/bin/dotnet", "/usr/local/bin/dotnet")
+                            .firstOrNull { file(it).exists() } ?: "dotnet"
+            else      -> "dotnet" // Linux: rely on PATH
+        }
+        extra["executable"] = dotnetExe
         var args = mutableListOf("msbuild")
 
         if (isWindows) {

@@ -6,6 +6,7 @@ import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBList
 import com.intellij.util.ui.JBUI
 import com.routex.RouteXStateService
+import com.routex.service.EnvironmentService
 import java.awt.BorderLayout
 import java.awt.CardLayout
 import java.awt.Font
@@ -30,11 +31,13 @@ class RouteXSettingsDialog(private val project: Project) : DialogWrapper(project
     }
 
     // Panels
+    private val sourcesPanel     = OpenApiSourcesPanel(project, EnvironmentService.getInstance(project))
     private val environmentPanel = EnvironmentSettingsPanel(stateService)
 
     init {
         title = "RouteX Settings"
 
+        registerPanel("Sources",      sourcesPanel)
         registerPanel("Environments", environmentPanel)
 
         navList.addListSelectionListener { e ->
@@ -78,6 +81,7 @@ class RouteXSettingsDialog(private val project: Project) : DialogWrapper(project
     }
 
     override fun doOKAction() {
+        sourcesPanel.commit()
         environmentPanel.commit()
         super.doOKAction()
     }

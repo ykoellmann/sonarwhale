@@ -4,7 +4,7 @@ import com.google.gson.GsonBuilder
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.routex.model.ApiEndpoint
-import com.routex.model.ParameterSource
+import com.routex.model.ParameterLocation
 import com.routex.model.SavedRequest
 
 /**
@@ -47,15 +47,15 @@ class PostmanCollectionExporter : CollectionExporter {
         }
         root.add("info", info)
 
-        // Group into folders by controller, matching Postman convention
-        val grouped = endpoints.groupBy { it.controllerName ?: "Minimal APIs" }
+        // Group into folders by tag (controller name), matching Postman convention
+        val grouped = endpoints.groupBy { it.tags.firstOrNull() ?: "Endpoints" }
         val items = JsonArray()
 
         grouped.entries.sortedBy { it.key }.forEach { (controller, eps) ->
             val folder = JsonObject()
             folder.addProperty("name", controller)
             val folderItems = JsonArray()
-            eps.sortedBy { it.methodName }.forEach { ep ->
+            eps.sortedBy { it.path }.forEach { ep ->
                 folderItems.add(buildItem(ep, savedRequests[ep.id]))
             }
             folder.add("item", folderItems)
@@ -68,10 +68,10 @@ class PostmanCollectionExporter : CollectionExporter {
 
     private fun buildItem(ep: ApiEndpoint, saved: SavedRequest?): JsonObject {
         val item = JsonObject()
-        item.addProperty("name", ep.methodName)
+        item.addProperty("name", ep.summary ?: "${ep.method.name} ${ep.path}")
 
         val request = JsonObject()
-        request.addProperty("method", ep.httpMethod.name)
+        request.addProperty("method", ep.method.name)
 
         // Headers
         val headers = JsonArray()
@@ -105,13 +105,13 @@ class PostmanCollectionExporter : CollectionExporter {
 
     private fun buildUrl(ep: ApiEndpoint, saved: SavedRequest?): JsonObject {
         val url = JsonObject()
-        url.addProperty("raw", "{{baseUrl}}${ep.route}")
+        url.addProperty("raw", "{{baseUrl}}${ep.path}")
 
         val pathParts = JsonArray()
-        ep.route.split("/").filter { it.isNotEmpty() }.forEach { pathParts.add(it) }
+        ep.path.split("/").filter { it.isNotEmpty() }.forEach { pathParts.add(it) }
         url.add("path", pathParts)
 
-        val pathVars = ep.parameters.filter { it.source == ParameterSource.PATH }
+        val pathVars = ep.parameters.filter { it.location == ParameterLocation.PATH }
         if (pathVars.isNotEmpty()) {
             val variables = JsonArray()
             pathVars.forEach { p ->
@@ -123,7 +123,7 @@ class PostmanCollectionExporter : CollectionExporter {
             url.add("variable", variables)
         }
 
-        val queryParams = ep.parameters.filter { it.source == ParameterSource.QUERY }
+        val queryParams = ep.parameters.filter { it.location == ParameterLocation.QUERY }
         if (queryParams.isNotEmpty()) {
             val query = JsonArray()
             queryParams.forEach { p ->

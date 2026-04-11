@@ -336,80 +336,76 @@ PsiManager.getInstance(project).addPsiTreeChangeListener(listener, disposable)
 
 ## Roadmap
 
-### Bereits implementiert (vor Planänderung, PSI-Basis)
+### Phase 1 — Migration auf OpenAPI-Basis ✅ ABGESCHLOSSEN
 
-- [x] C# Controller Endpoint-Erkennung via PSI (ControllerVisitor, MinimalApiVisitor)
-- [x] Rider Protocol Kommunikation C# ↔ Kotlin (RouteXModel.Generated, RouteXHost)
-- [x] Tool Window mit Endpoint-Tree (EndpointTree, RouteXPanel)
-- [x] HTTP-Client / Request senden (RequestPanel mit java.net.http)
-- [x] Response-Anzeige mit JSON-Highlighting (ResponsePanel mit EditorTextField)
+**PSI-Discovery-Infrastruktur entfernt:**
+- [x] `ControllerVisitor.cs`, `MinimalApiVisitor.cs`, `EndpointDetector.cs` gelöscht
+- [x] `RouteXHost.cs`, `RouteXModel.Generated.cs`, `RoutexDtos.cs` gelöscht
+- [x] `RouteXModel.Generated.kt` (generiertes Kotlin-Protokoll-Modell) gelöscht
+- [x] `EndpointProvider.kt`, `EndpointProviderRegistry.kt`, `CSharpEndpointProvider.kt` gelöscht
+- [x] `providers/python/` — alle 7 Python PSI-Provider gelöscht
+- [x] `RouteXService.kt` gelöscht (ersetzt durch `RouteIndexService`)
+- [x] `plugin.xml` bereinigt: kein EP für endpointProvider, keine Rd-Abhängigkeit
+
+**Neues OpenAPI-Datenmodell: ✅**
+- [x] `ApiEndpoint.kt` — OpenAPI-Modell: path, method, summary, tags, parameters, requestBody, responses, auth, source, psiNavigationTarget, status
+- [x] `ApiSchema.toJsonTemplate()` — generiert JSON-Template aus Schema (für Body-Vorbefüllung)
+- [x] `RoutexEnvironment.kt` + `EnvironmentSource` (ServerUrl / FilePath / StaticImport)
+- [x] `Enums.kt` — HttpMethod, ParameterLocation, AuthType, EndpointSource, EndpointStatus
+- [x] `SavedRequest.kt` — mehrere benannte Requests pro Endpoint (isDefault-Flag)
+- [x] `Environment.kt` — Umgebungsvariablen-Map ({{varName}}-Syntax)
+
+**OpenAPI-Infrastruktur: ✅**
+- [x] `OpenApiParser.kt` — vollständiger OpenAPI 3.x Parser (Pfade, Parameter, Schemas, Auth, $ref-Auflösung bis Tiefe 5)
+- [x] `OpenApiDiscovery.kt` — Auto-Discovery bekannter Pfade (ASP.NET Core, FastAPI, Spring Boot, Express)
+- [x] `OpenApiFetcher.kt` — async Fetch für alle drei Quell-Optionen; Fallback auf Cache bei Fehler
+
+**Services: ✅**
+- [x] `RouteIndexService.kt` — Haupt-Service mit VFS-FileListener (debounced 500ms), Listener-Pattern, FetchStatus-Enum
+- [x] `EnvironmentService.kt` — Environment-CRUD, Persistenz in `.idea/routex/environments.json`, Cache in `.idea/routex/cache/{id}.json`
+- [x] `RouteXStateService.kt` — SavedRequests + Environments (Variablen) + baseUrl + resolveVariables()
+
+**UI: ✅**
+- [x] `EndpointTree.kt` — tags-Gruppierung, path+method-Rendering, REMOVED-Strikethrough, Context-Menü
+- [x] `DetailPanel.kt` — Header mit method/path/tags/summary/auth-Badge, showEndpoint + showController
+- [x] `RequestPanel.kt` — ParamsTable, HeadersTable, BodyPanel, computed URL mit Env-Variablen-Auflösung, Saved Requests
+- [x] `RouteXPanel.kt` — Toolbar (Refresh/Re-Scan), Suche, Env-Selector, RouteIndexService-Integration
+- [x] `ParamsTablePanel.kt` — JBTable mit enabled/key/value/description
+- [x] `BodyPanel.kt` — none/form-data/raw/binary mit CardLayout und EditorTextField
+- [x] `EnvironmentSettingsPanel.kt` + `RouteXSettingsDialog.kt` — Environment + Variablen-Verwaltung
+- [x] `CollectionFormat.kt` — Postman v2.1 Export (tags statt controllerName, path statt route)
+
+**Bereits vorher vorhanden und behalten:**
+- [x] HTTP-Client / Request senden (java.net.http, `SwingWorker`)
+- [x] Response-Anzeige mit JSON-Highlighting (`ResponsePanel` mit `EditorTextField`)
 - [x] Response "Open in Editor" (Scratch-File)
-- [x] Saved Requests per Endpoint (RouteXStateService, XML-Persistenz)
-- [x] Postman v2.1 Collection Export (CollectionFormat.kt)
-- [x] "Go to Source" aus dem Endpoint-Tree (OpenInRouteXAction)
-- [x] Params-Tab mit JBTable (ParamsTablePanel)
-- [x] BodyPanel mit Raw/FormData/Binary und Typ-Auswahl
-- [x] Headers-Tab mit JBTable
-- [x] Incremental File-Level Caching im C# Backend (EndpointDetector mit file-write-time)
-
-### Phase 1 — Migration auf OpenAPI-Basis (aktuell, höchste Priorität)
-
-**Zu entfernende PSI-Discovery-Infrastruktur:**
-- [ ] `ControllerVisitor.cs` entfernen
-- [ ] `MinimalApiVisitor.cs` entfernen
-- [ ] `EndpointDetector.cs` entfernen
-- [ ] `RouteXHost.cs` entfernen (Rider Protocol für Discovery)
-- [ ] `RouteXModel.Generated.cs` + `.kt` entfernen (oder stark reduzieren)
-- [ ] `RoutexDtos.cs` entfernen
-- [ ] `EndpointProvider.kt` + `EndpointProviderRegistry.kt` + `CSharpEndpointProvider.kt` entfernen
-- [ ] Rider Protocol Dependency aus `plugin.xml` / `build.gradle.kts` entfernen (falls kein C# PSI mehr)
-
-**Neues OpenAPI-Datenmodell:**
-- [ ] `ApiEndpoint.kt` auf neues OpenAPI-Modell umschreiben (path, method, summary, tags, source, status, ...)
-- [ ] `RoutexEnvironment.kt` + `EnvironmentSource` (sealed class) anlegen
-- [ ] `Enums.kt` updaten: `EndpointSource`, `EndpointStatus`, `ParameterLocation`
-
-**OpenAPI-Infrastruktur:**
-- [ ] `OpenApiParser.kt` — OpenAPI JSON/YAML → `List<ApiEndpoint>`
-- [ ] `OpenApiDiscovery.kt` — Auto-Discovery bekannter Pfade (ASP.NET, FastAPI, Spring, ...)
-- [ ] `OpenApiFetcher.kt` — async Fetch für alle drei Quell-Optionen (Server-URL, Dateipfad, statisch)
-
-**Services:**
-- [ ] `RouteIndexService.kt` — Haupt-Service (ersetzt `RouteXService.kt`)
-- [ ] `EnvironmentService.kt` — Environment-Verwaltung + Persistenz in `.idea/routex/environments.json`
-- [ ] Cache-Persistenz in `.idea/routex/cache/{environment}.json`
-- [ ] Fallback auf Cache bei nicht erreichbarer Quelle
-
-**UI:**
-- [ ] `EnvironmentSelector.kt` — Dropdown mit aktivem Environment + Status-Icon (ok/cached/error)
-- [ ] `EndpointTree.kt` anpassen: auf neues `ApiEndpoint`-Modell (tags statt controllerName, path statt route)
-- [ ] `DetailPanel.kt` anpassen: summary, tags, source anzeigen
-- [ ] `RouteXStartupActivity.kt` anpassen: `OpenApiFetcher` starten statt PSI-Scan
+- [x] `OpenInRouteXAction.kt` — "Open in RouteX" Kontext-Menü (läuft über psiNavigationTarget, bis Phase 4 no-op)
+- [x] `RouteXGutterService.kt` — Gutter-Icons (laufen über psiNavigationTarget, bis Phase 4 no-op)
 
 ### Phase 2 — Fetch-Trigger & Refresh
 
+- [x] File-Save Trigger via `BulkFileListener` (JSON/YAML), debounced 500ms — bereits in RouteIndexService
+- [x] Manueller Refresh-Button und Re-Scan im Tool Window
 - [ ] Build-Event Trigger (MessageBus / CompileContext)
-- [ ] File-Save Trigger (`VirtualFileManager.addAsyncFileListener`)
 - [ ] 1-Minuten-Intervall (Alarm/Coroutine-Loop)
-- [ ] Manueller Refresh-Button im Tool Window
 
 ### Phase 3 — Diff & Snapshots
 
 - [ ] `SnapshotService.kt` — Diff nach jedem Refresh
 - [ ] Delta-Erkennung: added / modified / removed (ID-basiert: `"METHOD /path"`)
-- [ ] REMOVED-Endpoints im Tree anzeigen (durchgestrichen) bis bestätigt
+- [ ] REMOVED-Endpoints im Tree anzeigen (Rendering bereits vorbereitet in EndpointTree)
 - [ ] Diff-Tab im Detail-Panel
 - [ ] Breaking-Change-Badge am Tool Window Icon
 
-### Phase 4 — PSI-Navigation (optional, nach Phase 1-3)
+### Phase 4 — PSI-Navigation (optional)
 
-- [ ] `PsiNavigationBridge.kt` — Route-String aus OpenAPI → PsiElement im C#-Code
-- [ ] Gutter Icons neben Controller-Methoden (basieren auf OpenAPI-Daten, nicht PSI-Discovery)
+- [ ] `psiNavigationTarget` befüllen: Route-String aus OpenAPI → C#-Datei:Zeile (via RouteXSearcherFactory)
+- [ ] Gutter Icons werden dann automatisch aktiv (RouteXGutterService bereits vorbereitet)
 - [ ] Jump-to-Definition: OpenAPI-Endpoint → passende Controller-Methode im Code
+- [ ] `OpenInRouteXAction` wird vollständig funktional (psiNavigationTarget != null)
 
 ### Phase 5 — Import/Export & Erweiterungen
 
-- [ ] Environment-Variablen (Platzhalter in URLs/Headers)
 - [ ] Auth für den Swagger-Endpunkt selbst (Header/Token beim Fetch)
 - [ ] Python Provider Navigation (FastAPI/Flask — JVM PSI für Jump-to-Definition)
 - [ ] Java Provider Navigation (Spring Boot)
