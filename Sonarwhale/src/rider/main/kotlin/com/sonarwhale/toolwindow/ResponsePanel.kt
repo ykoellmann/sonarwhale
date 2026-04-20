@@ -8,13 +8,16 @@ import com.intellij.openapi.project.Project
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
+import com.intellij.ui.components.JBTabbedPane
 import com.intellij.util.ui.JBUI
+import com.sonarwhale.script.TestResult
 import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.Font
 import java.awt.GridBagConstraints
 import java.awt.GridBagLayout
 import java.awt.Insets
+import javax.swing.BoxLayout
 import javax.swing.JButton
 import javax.swing.JPanel
 import javax.swing.JTextArea
@@ -41,6 +44,12 @@ class ResponsePanel(private val project: Project) : JPanel(BorderLayout()) {
         font = Font(Font.MONOSPACED, Font.PLAIN, 12)
         border = JBUI.Borders.empty(8)
     }
+    private val tabs = JBTabbedPane()
+    private val testsPanel = JPanel().apply {
+        layout = BoxLayout(this, BoxLayout.Y_AXIS)
+        border = JBUI.Borders.empty(8)
+    }
+    private val testsScroll = JBScrollPane(testsPanel)
 
     init {
         val header = JPanel(GridBagLayout())
@@ -66,7 +75,9 @@ class ResponsePanel(private val project: Project) : JPanel(BorderLayout()) {
         header.add(openButton, gbc)
 
         add(header, BorderLayout.NORTH)
-        add(JBScrollPane(bodyArea), BorderLayout.CENTER)
+        tabs.addTab("Body", JBScrollPane(bodyArea))
+        tabs.addTab("Tests", testsScroll)
+        add(tabs, BorderLayout.CENTER)
 
         openButton.addActionListener { openInEditor() }
     }
@@ -106,6 +117,52 @@ class ResponsePanel(private val project: Project) : JPanel(BorderLayout()) {
         durationLabel.text = ""
         bodyArea.text = ""
         openButton.isVisible = false
+        testsPanel.removeAll()
+        tabs.setTitleAt(tabs.indexOfComponent(testsScroll), "Tests")
+        testsPanel.revalidate()
+    }
+
+    fun showTestResults(results: List<TestResult>) {
+        testsPanel.removeAll()
+        val testsIdx = tabs.indexOfComponent(testsScroll)
+        if (results.isEmpty()) {
+            tabs.setTitleAt(testsIdx, "Tests")
+            testsPanel.revalidate()
+            testsPanel.repaint()
+            return
+        }
+        val passed = results.count { it.passed }
+        tabs.setTitleAt(testsIdx, "Tests ($passed/${results.size})")
+
+        for (result in results) {
+            val row = JPanel(java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 4, 2)).apply {
+                isOpaque = false
+            }
+            val icon = JBLabel(if (result.passed) "✓" else "✗").apply {
+                foreground = if (result.passed)
+                    JBColor(java.awt.Color(0x00, 0xAA, 0x55), java.awt.Color(0x44, 0xCC, 0x77))
+                else
+                    JBColor(java.awt.Color(0xCC, 0x00, 0x00), java.awt.Color(0xFF, 0x44, 0x44))
+                font = font.deriveFont(Font.BOLD, 12f)
+            }
+            val name = JBLabel(result.name).apply { font = font.deriveFont(12f) }
+            row.add(icon)
+            row.add(name)
+            if (!result.passed && result.error != null) {
+                row.add(JBLabel("  ${result.error}").apply {
+                    foreground = JBColor.GRAY
+                    font = font.deriveFont(Font.ITALIC, 11f)
+                })
+            }
+            testsPanel.add(row)
+        }
+
+        testsPanel.revalidate()
+        testsPanel.repaint()
+
+        if (results.any { !it.passed }) {
+            tabs.selectedIndex = tabs.indexOfComponent(testsScroll)
+        }
     }
 
     private fun openInEditor() {
