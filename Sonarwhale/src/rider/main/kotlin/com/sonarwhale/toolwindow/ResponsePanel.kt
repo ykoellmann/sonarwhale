@@ -10,6 +10,7 @@ import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTabbedPane
 import com.intellij.util.ui.JBUI
+import com.sonarwhale.script.ConsoleEntry
 import com.sonarwhale.script.TestResult
 import java.awt.BorderLayout
 import java.awt.Color
@@ -50,6 +51,7 @@ class ResponsePanel(private val project: Project) : JPanel(BorderLayout()) {
         border = JBUI.Borders.empty(8)
     }
     private val testsScroll = JBScrollPane(testsPanel)
+    private val consolePanel = ConsolePanel()
 
     init {
         val header = JPanel(GridBagLayout())
@@ -77,6 +79,7 @@ class ResponsePanel(private val project: Project) : JPanel(BorderLayout()) {
         add(header, BorderLayout.NORTH)
         tabs.addTab("Body", JBScrollPane(bodyArea))
         tabs.addTab("Tests", testsScroll)
+        tabs.addTab("Console", consolePanel)
         add(tabs, BorderLayout.CENTER)
 
         openButton.addActionListener { openInEditor() }
@@ -119,6 +122,8 @@ class ResponsePanel(private val project: Project) : JPanel(BorderLayout()) {
         openButton.isVisible = false
         testsPanel.removeAll()
         tabs.setTitleAt(tabs.indexOfComponent(testsScroll), "Tests")
+        consolePanel.showEntries(emptyList())
+        tabs.setTitleAt(tabs.indexOfComponent(consolePanel), "Console")
         testsPanel.revalidate()
     }
 
@@ -162,6 +167,15 @@ class ResponsePanel(private val project: Project) : JPanel(BorderLayout()) {
 
         if (results.any { !it.passed }) {
             tabs.selectedIndex = tabs.indexOfComponent(testsScroll)
+        }
+    }
+
+    fun showConsole(entries: List<ConsoleEntry>) {
+        val consoleIdx = tabs.indexOfComponent(consolePanel)
+        tabs.setTitleAt(consoleIdx, if (entries.isEmpty()) "Console" else "Console (${entries.size})")
+        consolePanel.showEntries(entries)
+        if (entries.isNotEmpty()) {
+            tabs.selectedIndex = consoleIdx
         }
     }
 
