@@ -126,11 +126,19 @@ class SonarwhaleScriptService(private val project: Project) {
         scriptPath.parent.createDirectories()
         ensureSwDts()
         if (!scriptPath.exists()) {
+            val depth = when (level) {
+                ScriptLevel.GLOBAL   -> 0
+                ScriptLevel.TAG      -> 1
+                ScriptLevel.ENDPOINT -> 2
+                ScriptLevel.REQUEST  -> 3
+            }
+            val refPath = "../".repeat(depth) + "sw.d.ts"
+            val header = "/// <reference path=\"$refPath\" />\n"
             val comment = when (phase) {
                 ScriptPhase.PRE  -> "// Pre-script: runs before the HTTP request\n// Available: sw.env, sw.request, sw.http\n\n"
                 ScriptPhase.POST -> "// Post-script: runs after the HTTP response\n// Available: sw.env, sw.request, sw.response, sw.http, sw.test, sw.expect\n\n"
             }
-            scriptPath.writeText(comment)
+            scriptPath.writeText(header + comment)
         }
         return scriptPath
     }
@@ -151,32 +159,32 @@ class SonarwhaleScriptService(private val project: Project) {
         request = request
     )
 
-    /** Writes sw.d.ts and jsconfig.json to .sonarwhale/scripts/ if they do not exist yet. */
+    /** Writes sw.d.ts and jsconfig.json to .sonarwhale/scripts/. sw.d.ts is written once; jsconfig.json is always overwritten so fixes apply automatically. */
     fun ensureSwDts() {
         val root = scriptsRoot()
         root.createDirectories()
         val dts = root.resolve("sw.d.ts")
         if (!dts.exists()) dts.writeText(SW_DTS_CONTENT)
-        ensureJsConfig()
+        writeJsConfig()
     }
 
-    private fun ensureJsConfig() {
+    private fun writeJsConfig() {
         val root = scriptsRoot()
         root.createDirectories()
-        val jsconfig = root.resolve("jsconfig.json")
-        if (!jsconfig.exists()) {
-            jsconfig.writeText("""
-                {
-                  "compilerOptions": {
-                    "checkJs": true,
-                    "strict": false,
-                    "target": "ES6"
-                  },
-                  "include": ["./**/*.js"],
-                  "exclude": []
-                }
-            """.trimIndent())
-        }
+        // Always overwrite — this file is auto-generated and must stay up to date.
+        // "files" explicitly adds sw.d.ts to the compilation so 'declare const sw'
+        // is visible in all .js files. "include" adds the scripts themselves.
+        root.resolve("jsconfig.json").writeText("""
+            {
+              "compilerOptions": {
+                "checkJs": true,
+                "strict": false,
+                "target": "ES6"
+              },
+              "files": ["sw.d.ts"],
+              "include": ["./**/*.js"]
+            }
+        """.trimIndent())
     }
 
     private fun scriptsRoot(): Path =
