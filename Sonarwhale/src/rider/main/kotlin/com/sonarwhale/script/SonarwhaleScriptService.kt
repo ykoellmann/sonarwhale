@@ -187,6 +187,8 @@ class SonarwhaleScriptService(private val project: Project) {
         """.trimIndent())
     }
 
+    fun getScriptsRoot(): Path = scriptsRoot()
+
     private fun scriptsRoot(): Path =
         Path.of(project.basePath ?: ".").resolve(".sonarwhale").resolve("scripts")
 
