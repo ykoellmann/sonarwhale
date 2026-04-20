@@ -31,7 +31,7 @@ class SonarwhaleScriptService(private val project: Project) {
         url: String,
         headers: Map<String, String>,
         body: String,
-        console: ConsoleOutput = ConsoleOutput()
+        console: ConsoleOutput = ConsoleOutput()  // caller should provide shared instance; default discards entries
     ): ScriptContext {
         val stateService = SonarwhaleStateService.getInstance(project)
         val env = stateService.getActiveEnvironment()?.variables?.toMutableMap() ?: mutableMapOf()
@@ -66,7 +66,7 @@ class SonarwhaleScriptService(private val project: Project) {
         responseHeaders: Map<String, String>,
         responseBody: String,
         scriptContext: ScriptContext,
-        console: ConsoleOutput = ConsoleOutput()
+        console: ConsoleOutput = ConsoleOutput()  // caller should provide shared instance; default discards entries
     ): List<TestResult> {
         val response = ResponseContext(statusCode, responseHeaders, responseBody)
         val postCtx = ScriptContext(
