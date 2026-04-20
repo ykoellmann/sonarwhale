@@ -56,6 +56,103 @@ Roux the Narwhal — because narwhals have the best echolocation in nature, and 
 
 Early development. Currently targeting JetBrains Rider 2025.3+ with ASP.NET Core as the first fully supported stack.
 
+## Pre/Post Scripts
+
+Sonarwhale supports JavaScript scripts that run before and after each HTTP request. Scripts live as plain `.js` files in `.sonarwhale/scripts/` and are organized in a hierarchy: global → tag → endpoint → request. Click **⚡ Pre** or **⚡ Post** in the request toolbar to create a script for the current request.
+
+A `sw.d.ts` type definition file is generated automatically so the IDE can provide autocomplete for the `sw` API.
+
+### Auth: fetch a token before every request (global pre-script)
+
+`.sonarwhale/scripts/pre.js`
+
+```js
+// Fetch a JWT token and inject it into every outgoing request.
+const res = sw.http.post(
+  sw.env.get("baseUrl") + "/auth/login",
+  JSON.stringify({
+    username: sw.env.get("username"),
+    password: sw.env.get("password"),
+  }),
+  { "Content-Type": "application/json" }
+);
+
+if (res.status !== 200) {
+  throw new Error("Login failed: " + res.status + " " + res.body);
+}
+
+const token = res.json().access_token;
+sw.env.set("token", token);
+sw.request.setHeader("Authorization", "Bearer " + token);
+```
+
+### Extract a created resource's ID (post-script)
+
+`.sonarwhale/scripts/Users/POST__api_users/post.js`
+
+```js
+// After creating a user, store the new ID so other requests can use it.
+if (sw.response.status === 201) {
+  const id = sw.response.json().id;
+  sw.env.set("lastCreatedUserId", String(id));
+}
+```
+
+### Assert on response status and shape (post-script)
+
+`.sonarwhale/scripts/Users/GET__api_users_{id}/Happy_Path/post.js`
+
+```js
+sw.test("returns 200", function () {
+  if (sw.response.status !== 200) {
+    throw new Error("Expected 200, got " + sw.response.status);
+  }
+});
+
+sw.test("response has id and email", function () {
+  const body = sw.response.json();
+  if (!body.id)    throw new Error("Missing id");
+  if (!body.email) throw new Error("Missing email");
+});
+
+// Store the email for use in a follow-up request
+sw.env.set("lastEmail", sw.response.json().email);
+```
+
+### Add a dynamic timestamp header (endpoint pre-script)
+
+`.sonarwhale/scripts/Orders/POST__api_orders/pre.js`
+
+```js
+// Some APIs require a request timestamp for idempotency checks.
+sw.request.setHeader("X-Request-Timestamp", new Date().toISOString());
+sw.request.setHeader("X-Request-Id", Math.random().toString(36).slice(2));
+```
+
+### Disable inherited auth for a public endpoint
+
+Create an empty `.sonarwhale/scripts/Public/GET__health/inherit.off` file.
+This stops the global `pre.js` (which sets `Authorization`) from running for this endpoint.
+
+---
+
+### Available API
+
+| Object | What it does |
+|---|---|
+| `sw.env.get(key)` | Read an environment variable |
+| `sw.env.set(key, value)` | Write an environment variable (persisted to the active environment) |
+| `sw.request.setHeader(k, v)` | Add or override a request header |
+| `sw.request.setBody(body)` | Replace the request body |
+| `sw.request.setUrl(url)` | Replace the request URL |
+| `sw.response.status` | HTTP status code (post-scripts only) |
+| `sw.response.json()` | Parse the response body as JSON (post-scripts only) |
+| `sw.http.get(url, headers?)` | Synchronous GET request |
+| `sw.http.post(url, body, headers?)` | Synchronous POST request |
+| `sw.http.request(method, url, body?, headers?)` | Any HTTP method |
+| `sw.test(name, fn)` | Assert — shown in the Tests tab; throw or return false to fail |
+| `sw.expect(value).toBe(expected)` | Inline assertion |
+
 ## License
 
 TBD
