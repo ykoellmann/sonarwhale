@@ -50,9 +50,6 @@
     <!-- Project-level service: executes pre/post JS scripts for requests -->
     <projectService serviceImplementation="com.sonarwhale.script.SonarwhaleScriptService"/>
 
-    <!-- Registers .sonarwhale/scripts/ as a library so sw.d.ts is indexed for JS autocomplete -->
-    <roots.additionalLibraryRootsProvider implementation="com.sonarwhale.SonarwhaleLibraryProvider"/>
-
     <!-- Trigger initial OpenAPI fetch after project opens -->
     <postStartupActivity implementation="com.sonarwhale.SonarwhaleStartupActivity"/>
 

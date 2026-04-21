@@ -160,36 +160,37 @@ class SonarwhaleScriptService(private val project: Project) {
     )
 
     /**
-     * Writes sw.d.ts, sw.js (JSDoc globals for JS library analysis), and jsconfig.json.
-     * sw.d.ts / sw.js are written once (user may edit sw.d.ts); jsconfig.json is always overwritten.
+     * Writes sw.d.ts and tsconfig.json to .sonarwhale/scripts/.
+     * sw.d.ts is written once (user may edit it); tsconfig.json is always overwritten.
+     *
+     * tsconfig.json with allowJs:true triggers IntelliJ's TypeScript Language Service
+     * for the .js script files, which correctly handles 'declare const sw' from sw.d.ts.
+     * jsconfig.json does NOT do this — it uses a lighter JS-only analysis that ignores .d.ts.
      */
     fun ensureSwDts() {
         val root = scriptsRoot()
         root.createDirectories()
         val dts = root.resolve("sw.d.ts")
         if (!dts.exists()) dts.writeText(SW_DTS_CONTENT)
-        // sw.js provides the same API as JSDoc so IntelliJ's JavaScript library analysis
-        // (which reads var declarations + @type, not .d.ts ambient declarations) can
-        // expose 'sw' globally in .js script files.
-        val swJs = root.resolve("sw.js")
-        swJs.writeText(SW_JS_CONTENT)
-        writeJsConfig()
+        writeTsConfig()
     }
 
-    private fun writeJsConfig() {
+    private fun writeTsConfig() {
         val root = scriptsRoot()
         root.createDirectories()
-        // Always overwrite — this file is auto-generated and must stay up to date.
-        // "files" explicitly adds sw.d.ts and sw.js to the compilation so 'sw.*'
-        // is visible in all .js script files regardless of nesting depth.
-        root.resolve("jsconfig.json").writeText("""
+        // Always overwrite — auto-generated, must stay current.
+        // allowJs + checkJs activates the TypeScript Language Service for .js files so
+        // that 'declare const sw' in sw.d.ts is visible as a global in all script files.
+        root.resolve("tsconfig.json").writeText("""
             {
               "compilerOptions": {
+                "allowJs": true,
                 "checkJs": true,
                 "strict": false,
-                "target": "ES6"
+                "target": "ES6",
+                "noEmit": true
               },
-              "files": ["sw.d.ts", "sw.js"],
+              "files": ["sw.d.ts"],
               "include": ["./**/*.js"]
             }
         """.trimIndent())
@@ -218,61 +219,6 @@ class SonarwhaleScriptService(private val project: Project) {
 
     companion object {
         fun getInstance(project: Project): SonarwhaleScriptService = project.service()
-
-        // JSDoc-style globals for IntelliJ's JavaScript library analysis.
-        // IntelliJ reads 'var x' + @type JSDoc from library .js files to expose
-        // globals — it does NOT use 'declare const' from .d.ts for this purpose.
-        private val SW_JS_CONTENT = """
-// Sonarwhale Script API — auto-generated, do not edit
-// This file provides 'sw' autocompletion in .js script files via JSDoc.
-
-/**
- * @typedef {{status: number, headers: Object.<string,string>, body: string, error: (string|undefined), json: function(): *}} SwHttpResponse
- */
-
-/**
- * @typedef {{
- *   toBe: function(*): void,
- *   toEqual: function(*): void,
- *   toBeTruthy: function(): void,
- *   toBeFalsy: function(): void,
- *   toContain: function(string): void
- * }} SwExpect
- */
-
-/**
- * Sonarwhale script API — available in all pre/post scripts.
- * @type {{
- *   env: {
- *     get: function(string): (string|undefined),
- *     set: function(string, string): void
- *   },
- *   request: {
- *     url: string,
- *     method: string,
- *     headers: Object.<string,string>,
- *     body: string,
- *     setHeader: function(string, string): void,
- *     setBody: function(string): void,
- *     setUrl: function(string): void
- *   },
- *   response: {
- *     status: number,
- *     headers: Object.<string,string>,
- *     body: string,
- *     json: function(): *
- *   },
- *   http: {
- *     get: function(string, Object=): SwHttpResponse,
- *     post: function(string, string, Object=): SwHttpResponse,
- *     request: function(string, string, *, Object=): SwHttpResponse
- *   },
- *   test: function(string, function(): void): void,
- *   expect: function(*): SwExpect
- * }}
- */
-var sw;
-        """.trimIndent()
 
         private val SW_DTS_CONTENT = """
 // Sonarwhale Script API — auto-generated, do not edit
