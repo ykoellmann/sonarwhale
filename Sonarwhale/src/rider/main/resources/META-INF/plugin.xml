@@ -53,6 +53,24 @@
     <!-- Trigger initial OpenAPI fetch after project opens -->
     <postStartupActivity implementation="com.sonarwhale.SonarwhaleStartupActivity"/>
 
+    <!-- Settings pages under Tools > Sonarwhale -->
+    <projectConfigurable
+        parentId="tools"
+        instance="com.sonarwhale.settings.SonarwhaleConfigurable"
+        displayName="Sonarwhale"
+        id="com.sonarwhale.settings.SonarwhaleConfigurable"
+        nonDefaultProject="false"/>
+    <projectConfigurable
+        parentId="com.sonarwhale.settings.SonarwhaleConfigurable"
+        instance="com.sonarwhale.settings.SonarwhaleSourcesConfigurable"
+        displayName="Sources"
+        nonDefaultProject="false"/>
+    <projectConfigurable
+        parentId="com.sonarwhale.settings.SonarwhaleConfigurable"
+        instance="com.sonarwhale.settings.SonarwhaleEnvironmentsConfigurable"
+        displayName="Environments"
+        nonDefaultProject="false"/>
+
   </extensions>
 
   <actions>

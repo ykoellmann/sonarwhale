@@ -6,8 +6,10 @@ import com.intellij.openapi.actionSystem.ActionToolbar
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.DefaultActionGroup
+import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.Project
 import com.intellij.ui.JBColor
+import com.sonarwhale.settings.SonarwhaleConfigurable
 import com.intellij.ui.OnePixelSplitter
 import com.intellij.ui.SearchTextField
 import com.intellij.ui.components.JBLabel
@@ -132,6 +134,7 @@ class SonarwhalePanel(private val project: Project) : JPanel(BorderLayout()) {
             if (selected != null) {
                 envService.setActive(selected.id)
                 RouteIndexService.getInstance(project).refresh()
+                detailPanel.requestPanel.refreshEnvironment()
             }
         }
 
@@ -140,12 +143,10 @@ class SonarwhalePanel(private val project: Project) : JPanel(BorderLayout()) {
             isContentAreaFilled = false
             toolTipText = "Manage sources & environments"
             addActionListener {
-                SonarwhaleSettingsDialog(project).apply {
-                    if (showAndGet()) {
-                        refreshEnvCombo()
-                        RouteIndexService.getInstance(project).refresh()
-                    }
-                }
+                ShowSettingsUtil.getInstance().showSettingsDialog(project, SonarwhaleConfigurable::class.java)
+                refreshEnvCombo()
+                RouteIndexService.getInstance(project).refresh()
+                detailPanel.requestPanel.refreshEnvironment()
             }
         }
 
