@@ -5,8 +5,10 @@ import com.google.gson.JsonParser
 import com.google.gson.reflect.TypeToken
 import com.intellij.openapi.components.*
 import com.intellij.openapi.project.Project
-import com.sonarwhale.model.Environment
+import com.sonarwhale.model.EndpointConfig
+import com.sonarwhale.model.GlobalConfig
 import com.sonarwhale.model.SavedRequest
+import com.sonarwhale.model.TagConfig
 import java.util.UUID
 
 @Service(Service.Level.PROJECT)
@@ -21,9 +23,12 @@ class SonarwhaleStateService(@Suppress("UNUSED_PARAMETER") project: Project) : P
     class State {
         // endpointId → JSON array of SavedRequest
         @JvmField var savedRequests: LinkedHashMap<String, String> = LinkedHashMap()
-        // JSON array of Environment
-        @JvmField var environments: String = ""
-        @JvmField var activeEnvironmentId: String = ""
+        // NEW: global config JSON (GlobalConfig)
+        @JvmField var globalConfig: String = ""
+        // NEW: tag → JSON of TagConfig
+        @JvmField var tagConfigs: LinkedHashMap<String, String> = LinkedHashMap()
+        // NEW: endpointId → JSON of EndpointConfig
+        @JvmField var endpointConfigs: LinkedHashMap<String, String> = LinkedHashMap()
     }
 
     private val gson = Gson()
@@ -34,8 +39,11 @@ class SonarwhaleStateService(@Suppress("UNUSED_PARAMETER") project: Project) : P
     override fun loadState(state: State) {
         myState.savedRequests.clear()
         myState.savedRequests.putAll(state.savedRequests)
-        myState.environments = state.environments
-        myState.activeEnvironmentId = state.activeEnvironmentId
+        myState.globalConfig = state.globalConfig
+        myState.tagConfigs.clear()
+        myState.tagConfigs.putAll(state.tagConfigs)
+        myState.endpointConfigs.clear()
+        myState.endpointConfigs.putAll(state.endpointConfigs)
     }
 
     // ── Read ───────────────────────────────────────────────────────────────────
@@ -82,52 +90,40 @@ class SonarwhaleStateService(@Suppress("UNUSED_PARAMETER") project: Project) : P
         myState.savedRequests[endpointId] = gson.toJson(updated)
     }
 
-    // ── Environments ───────────────────────────────────────────────────────────
+    // ── GlobalConfig ───────────────────────────────────────────────────────────
 
-    fun getEnvironments(): List<Environment> {
-        val json = myState.environments
-        if (json.isBlank()) return emptyList()
+    fun getGlobalConfig(): GlobalConfig {
+        val json = myState.globalConfig
+        if (json.isBlank()) return GlobalConfig()
         return runCatching {
-            val type = object : TypeToken<List<Environment>>() {}.type
-            gson.fromJson<List<Environment>>(json, type) ?: emptyList()
-        }.getOrDefault(emptyList())
+            gson.fromJson(json, GlobalConfig::class.java)
+        }.getOrDefault(GlobalConfig())
     }
 
-    fun getActiveEnvironment(): Environment? {
-        val envs = getEnvironments()
-        if (envs.isEmpty()) return null
-        val id = myState.activeEnvironmentId
-        if (id.isBlank()) return envs.firstOrNull()
-        return envs.firstOrNull { it.id == id } ?: envs.firstOrNull()
+    fun setGlobalConfig(config: GlobalConfig) {
+        myState.globalConfig = gson.toJson(config)
     }
 
-    fun setActiveEnvironment(id: String) {
-        myState.activeEnvironmentId = id
+    // ── TagConfig ──────────────────────────────────────────────────────────────
+
+    fun getTagConfig(tag: String): TagConfig {
+        val json = myState.tagConfigs[tag] ?: return TagConfig(tag = tag)
+        return runCatching { gson.fromJson(json, TagConfig::class.java) }.getOrDefault(TagConfig(tag = tag))
     }
 
-    fun upsertEnvironment(env: Environment) {
-        val list = getEnvironments().toMutableList()
-        val idx = list.indexOfFirst { it.id == env.id }
-        if (idx >= 0) list[idx] = env else list.add(env)
-        myState.environments = gson.toJson(list)
+    fun setTagConfig(config: TagConfig) {
+        myState.tagConfigs[config.tag] = gson.toJson(config)
     }
 
-    fun removeEnvironment(id: String) {
-        val list = getEnvironments().filter { it.id != id }
-        myState.environments = gson.toJson(list)
-        if (myState.activeEnvironmentId == id) myState.activeEnvironmentId = ""
+    // ── EndpointConfig ─────────────────────────────────────────────────────────
+
+    fun getEndpointConfig(endpointId: String): EndpointConfig {
+        val json = myState.endpointConfigs[endpointId] ?: return EndpointConfig(endpointId = endpointId)
+        return runCatching { gson.fromJson(json, EndpointConfig::class.java) }.getOrDefault(EndpointConfig(endpointId = endpointId))
     }
 
-    /**
-     * Replaces `{{varName}}` placeholders in [text] with values from the active environment.
-     * Unknown variables are left as-is so they stay visible to the user.
-     */
-    fun resolveVariables(text: String): String {
-        val env = getActiveEnvironment() ?: return text
-        if (env.variables.isEmpty()) return text
-        return VAR_PATTERN.replace(text) { match ->
-            env.variables[match.groupValues[1]] ?: match.value
-        }
+    fun setEndpointConfig(config: EndpointConfig) {
+        myState.endpointConfigs[config.endpointId] = gson.toJson(config)
     }
 
     // ── Serialization ─────────────────────────────────────────────────────────
@@ -162,7 +158,6 @@ class SonarwhaleStateService(@Suppress("UNUSED_PARAMETER") project: Project) : P
     }
 
     companion object {
-        private val VAR_PATTERN = Regex("\\{\\{([^{}]+?)\\}\\}")
         fun getInstance(project: Project): SonarwhaleStateService = project.service()
     }
 }
