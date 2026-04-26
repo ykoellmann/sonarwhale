@@ -19,6 +19,7 @@ import com.intellij.ui.SimpleTextAttributes
 import com.intellij.ui.treeStructure.Tree
 import com.sonarwhale.SonarwhaleStateService
 import com.sonarwhale.gutter.SourceLocationService
+import com.sonarwhale.model.ApiCollection
 import com.sonarwhale.model.ApiEndpoint
 import com.sonarwhale.model.EndpointStatus
 import com.sonarwhale.model.HttpMethod
@@ -26,6 +27,7 @@ import com.sonarwhale.model.SavedRequest
 import com.sonarwhale.script.ScriptLevel
 import com.sonarwhale.script.ScriptPhase
 import com.sonarwhale.script.SonarwhaleScriptService
+import com.sonarwhale.service.CollectionService
 import java.awt.Color
 import java.awt.event.KeyAdapter
 import java.awt.event.KeyEvent
@@ -58,15 +60,20 @@ object GlobalNode {
     override fun toString() = "Global"
 }
 
+class CollectionNode(val collection: ApiCollection) {
+    override fun toString() = collection.name
+}
+
 // ── Tree ──────────────────────────────────────────────────────────────────────
 
 class EndpointTree(private val project: Project) : Tree() {
 
     // Callbacks wired by SonarwhalePanel
-    var onEndpointSelected:   ((ApiEndpoint) -> Unit)?              = null
-    var onControllerSelected: ((ControllerNode) -> Unit)?           = null
-    var onRequestSelected:    ((ApiEndpoint, SavedRequest) -> Unit)? = null
-    var onGlobalSelected: (() -> Unit)? = null
+    var onEndpointSelected:    ((ApiEndpoint) -> Unit)?              = null
+    var onControllerSelected:  ((ControllerNode) -> Unit)?           = null
+    var onRequestSelected:     ((ApiEndpoint, SavedRequest) -> Unit)? = null
+    var onGlobalSelected:      (() -> Unit)?                         = null
+    var onCollectionSelected:  ((ApiCollection) -> Unit)?            = null
 
     private val stateService = SonarwhaleStateService.getInstance(project)
 
@@ -78,7 +85,7 @@ class EndpointTree(private val project: Project) : Tree() {
         selectionModel.selectionMode = TreeSelectionModel.SINGLE_TREE_SELECTION
         isRootVisible   = false
         showsRootHandles = true
-        cellRenderer    = EndpointTreeCellRenderer()
+        cellRenderer    = EndpointTreeCellRenderer(project)
 
         // Full-row selection: clicking anywhere on a row (not just the text) selects it
         putClientProperty("JTree.fullRowSelection", true)
@@ -86,10 +93,11 @@ class EndpointTree(private val project: Project) : Tree() {
         addTreeSelectionListener { e ->
             val node = e.path?.lastPathComponent as? DefaultMutableTreeNode ?: return@addTreeSelectionListener
             when (val obj = node.userObject) {
-                is EndpointNode   -> onEndpointSelected?.invoke(obj.endpoint)
-                is ControllerNode -> onControllerSelected?.invoke(obj)
-                is RequestNode    -> onRequestSelected?.invoke(obj.endpoint, obj.request)
-                is GlobalNode     -> onGlobalSelected?.invoke()
+                is EndpointNode    -> onEndpointSelected?.invoke(obj.endpoint)
+                is ControllerNode  -> onControllerSelected?.invoke(obj)
+                is RequestNode     -> onRequestSelected?.invoke(obj.endpoint, obj.request)
+                is GlobalNode      -> onGlobalSelected?.invoke()
+                is CollectionNode  -> onCollectionSelected?.invoke(obj.collection)
             }
         }
 
@@ -149,11 +157,12 @@ class EndpointTree(private val project: Project) : Tree() {
         val group = DefaultActionGroup()
 
         when (val obj = node.userObject) {
-            is GlobalNode     -> buildGlobalMenu(group)
-            is ControllerNode -> buildControllerMenu(group, obj)
-            is EndpointNode   -> buildEndpointMenu(group, obj.endpoint)
-            is RequestNode    -> buildRequestMenu(group, obj.endpoint, obj.request)
-            else              -> return
+            is GlobalNode      -> buildGlobalMenu(group)
+            is CollectionNode  -> buildCollectionMenu(group, obj.collection)
+            is ControllerNode  -> buildControllerMenu(group, obj)
+            is EndpointNode    -> buildEndpointMenu(group, obj.endpoint)
+            is RequestNode     -> buildRequestMenu(group, obj.endpoint, obj.request)
+            else               -> return
         }
 
         val popup = ActionManager.getInstance()
@@ -193,6 +202,39 @@ class EndpointTree(private val project: Project) : Tree() {
             "Create global post.js that runs after every request", AllIcons.Actions.Edit) {
             override fun actionPerformed(e: AnActionEvent) {
                 openOrCreateScriptInBackground(ScriptPhase.POST, ScriptLevel.GLOBAL)
+            }
+        })
+    }
+
+    private fun buildCollectionMenu(group: DefaultActionGroup, collection: ApiCollection) {
+        val collectionService = CollectionService.getInstance(project)
+
+        // Sub-menu: Switch Environment
+        val envGroup = DefaultActionGroup("Switch Environment", true)
+        for (env in collection.environments) {
+            val isActive = env.id == collection.activeEnvironmentId
+            envGroup.add(object : AnAction(
+                if (isActive) "✓ ${env.name}" else env.name, "", null
+            ) {
+                override fun actionPerformed(e: AnActionEvent) {
+                    collectionService.setActiveEnvironment(collection.id, env.id)
+                    com.sonarwhale.service.RouteIndexService.getInstance(project).refresh()
+                }
+            })
+        }
+        group.add(envGroup)
+        group.add(Separator.getInstance())
+
+        group.add(object : AnAction("Create Pre-Script (Collection)", "", AllIcons.Actions.Edit) {
+            override fun actionPerformed(e: AnActionEvent) {
+                openOrCreateScriptInBackground(ScriptPhase.PRE, ScriptLevel.COLLECTION,
+                    tag = collection.id)
+            }
+        })
+        group.add(object : AnAction("Create Post-Script (Collection)", "", AllIcons.Actions.Edit) {
+            override fun actionPerformed(e: AnActionEvent) {
+                openOrCreateScriptInBackground(ScriptPhase.POST, ScriptLevel.COLLECTION,
+                    tag = collection.id)
             }
         })
     }
@@ -366,22 +408,33 @@ class EndpointTree(private val project: Project) : Tree() {
     private fun rebuildTree() {
         val root = DefaultMutableTreeNode("root")
         val globalNode = DefaultMutableTreeNode(GlobalNode)
+        val collectionService = CollectionService.getInstance(project)
 
-        if (currentEndpoints.isEmpty()) {
-            globalNode.add(DefaultMutableTreeNode(NoResults))
-        } else {
-            val grouped = currentEndpoints.groupBy { it.tags.firstOrNull() ?: "Endpoints" }
-            for ((tag, eps) in grouped.entries.sortedBy { it.key }) {
-                val ctrlNode = DefaultMutableTreeNode(ControllerNode(tag, eps))
-                for (ep in eps.sortedWith(compareBy({ it.path }, { it.method.name }))) {
-                    val epNode = DefaultMutableTreeNode(EndpointNode(ep))
-                    stateService.getRequests(ep.id).forEach { req ->
-                        epNode.add(DefaultMutableTreeNode(RequestNode(ep, req)))
+        val byCollection = currentEndpoints.groupBy { ep ->
+            // endpointId format: "collectionId:METHOD /path"
+            ep.id.substringBefore(":")
+        }
+
+        for (col in collectionService.getAll()) {
+            val colNode = DefaultMutableTreeNode(CollectionNode(col))
+            val eps = byCollection[col.id] ?: emptyList()
+            if (eps.isEmpty()) {
+                colNode.add(DefaultMutableTreeNode(NoResults))
+            } else {
+                val grouped = eps.groupBy { it.tags.firstOrNull() ?: "Endpoints" }
+                for ((tag, tagEps) in grouped.entries.sortedBy { it.key }) {
+                    val ctrlNode = DefaultMutableTreeNode(ControllerNode(tag, tagEps))
+                    for (ep in tagEps.sortedWith(compareBy({ it.path }, { it.method.name }))) {
+                        val epNode = DefaultMutableTreeNode(EndpointNode(ep))
+                        stateService.getRequests(ep.id).forEach { req ->
+                            epNode.add(DefaultMutableTreeNode(RequestNode(ep, req)))
+                        }
+                        ctrlNode.add(epNode)
                     }
-                    ctrlNode.add(epNode)
+                    colNode.add(ctrlNode)
                 }
-                globalNode.add(ctrlNode)
             }
+            globalNode.add(colNode)
         }
 
         root.add(globalNode)
@@ -448,7 +501,7 @@ class EndpointTree(private val project: Project) : Tree() {
 
 // ── Cell renderer ─────────────────────────────────────────────────────────────
 
-private class EndpointTreeCellRenderer : ColoredTreeCellRenderer() {
+private class EndpointTreeCellRenderer(private val project: Project) : ColoredTreeCellRenderer() {
 
     override fun customizeCellRenderer(
         tree: JTree, value: Any?, selected: Boolean,
@@ -491,6 +544,15 @@ private class EndpointTreeCellRenderer : ColoredTreeCellRenderer() {
             is GlobalNode -> {
                 append("Global", SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES)
                 icon = AllIcons.Nodes.Package
+            }
+            is CollectionNode -> {
+                val col = obj.collection
+                val collectionService = CollectionService.getInstance(project)
+                val activeEnvName = collectionService.getActiveEnvironment(col.id)?.name ?: "no env"
+                append(col.name, SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES)
+                append("  $activeEnvName",
+                    SimpleTextAttributes(SimpleTextAttributes.STYLE_PLAIN, JBColor.GRAY))
+                icon = AllIcons.Nodes.Folder
             }
             is ControllerNode -> {
                 append(obj.name, SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES)
