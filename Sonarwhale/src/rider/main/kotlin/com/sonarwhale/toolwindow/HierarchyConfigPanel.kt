@@ -39,6 +39,8 @@ class HierarchyConfigPanel(
 
     private val tabs = CollapsibleTabPane()
     private val variablesPanel = VariablesTablePanel()
+    private val preCheckboxes  = mutableMapOf<com.sonarwhale.script.ScriptLevel, javax.swing.JCheckBox>()
+    private val postCheckboxes = mutableMapOf<com.sonarwhale.script.ScriptLevel, javax.swing.JCheckBox>()
     private val authPanel = AuthConfigPanel(
         auth = config.auth,
         onChange = { updatedAuth ->
@@ -64,6 +66,8 @@ class HierarchyConfigPanel(
         config = newConfig
         variablesPanel.setVariables(newConfig.variables)
         authPanel.setAuth(newConfig.auth)
+        preCheckboxes.forEach  { (level, cb) -> cb.isSelected = !newConfig.disabledPreLevels.contains(level.name) }
+        postCheckboxes.forEach { (level, cb) -> cb.isSelected = !newConfig.disabledPostLevels.contains(level.name) }
     }
 
     private fun buildScriptsTab(): JPanel {
@@ -83,7 +87,63 @@ class HierarchyConfigPanel(
         panel.add(preBtn)
         panel.add(Box.createVerticalStrut(4))
         panel.add(postBtn)
+
+        val parentLevels: List<com.sonarwhale.script.ScriptLevel> = when (scriptContext?.level) {
+            com.sonarwhale.script.ScriptLevel.COLLECTION ->
+                listOf(com.sonarwhale.script.ScriptLevel.GLOBAL)
+            com.sonarwhale.script.ScriptLevel.TAG ->
+                listOf(com.sonarwhale.script.ScriptLevel.GLOBAL, com.sonarwhale.script.ScriptLevel.COLLECTION)
+            com.sonarwhale.script.ScriptLevel.ENDPOINT ->
+                listOf(com.sonarwhale.script.ScriptLevel.GLOBAL, com.sonarwhale.script.ScriptLevel.COLLECTION, com.sonarwhale.script.ScriptLevel.TAG)
+            else -> emptyList()
+        }
+
+        if (parentLevels.isNotEmpty()) {
+            panel.add(Box.createVerticalStrut(12))
+            panel.add(javax.swing.JLabel("Disable inherited:").apply { alignmentX = LEFT_ALIGNMENT })
+            panel.add(Box.createVerticalStrut(4))
+            panel.add(buildToggleGrid(parentLevels))
+        }
+
         return panel
+    }
+
+    private fun buildToggleGrid(levels: List<com.sonarwhale.script.ScriptLevel>): JPanel {
+        val grid = JPanel(java.awt.GridBagLayout())
+        grid.alignmentX = LEFT_ALIGNMENT
+        val gbc = java.awt.GridBagConstraints().apply {
+            anchor = java.awt.GridBagConstraints.WEST
+            insets = java.awt.Insets(2, 0, 2, 8)
+        }
+        gbc.gridy = 0; gbc.gridx = 0; grid.add(JPanel(), gbc)
+        gbc.gridx = 1; grid.add(javax.swing.JLabel("Pre"), gbc)
+        gbc.gridx = 2; grid.add(javax.swing.JLabel("Post"), gbc)
+
+        levels.forEachIndexed { i, level ->
+            val preCb  = javax.swing.JCheckBox().apply {
+                isSelected = !config.disabledPreLevels.contains(level.name)
+                addActionListener { onToggleChanged() }
+            }
+            val postCb = javax.swing.JCheckBox().apply {
+                isSelected = !config.disabledPostLevels.contains(level.name)
+                addActionListener { onToggleChanged() }
+            }
+            preCheckboxes[level]  = preCb
+            postCheckboxes[level] = postCb
+
+            gbc.gridy = i + 1
+            gbc.gridx = 0; grid.add(javax.swing.JLabel(level.name.lowercase().replaceFirstChar { it.uppercase() }), gbc)
+            gbc.gridx = 1; grid.add(preCb,  gbc)
+            gbc.gridx = 2; grid.add(postCb, gbc)
+        }
+        return grid
+    }
+
+    private fun onToggleChanged() {
+        val disabledPre  = preCheckboxes.entries.filter  { !it.value.isSelected }.map { it.key.name }.toSet()
+        val disabledPost = postCheckboxes.entries.filter { !it.value.isSelected }.map { it.key.name }.toSet()
+        config = config.copy(disabledPreLevels = disabledPre, disabledPostLevels = disabledPost)
+        onSave(config)
     }
 
     private fun openScript(phase: ScriptPhase) {
