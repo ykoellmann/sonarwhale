@@ -153,7 +153,8 @@ class HierarchyConfigPanel(
             val path = scriptService.getOrCreateScript(
                 phase = phase,
                 level = ctx.level,
-                tag = ctx.tag ?: ctx.collectionId.takeIf { it.isNotBlank() }
+                tag = ctx.tag,
+                collectionId = ctx.collectionId
             )
             val vf = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(path) ?: return@executeOnPooledThread
             ApplicationManager.getApplication().invokeLater {

@@ -141,9 +141,10 @@ class SonarwhaleScriptService(private val project: Project) {
         level: ScriptLevel,
         tag: String? = null,
         endpoint: ApiEndpoint? = null,
-        request: SavedRequest? = null
+        request: SavedRequest? = null,
+        collectionId: String = ""
     ): Path {
-        val scriptPath = getScriptPath(phase, level, tag, endpoint, request)
+        val scriptPath = getScriptPath(phase, level, tag, endpoint, request, collectionId)
         scriptPath.parent.createDirectories()
         ensureSwDts()
         if (!scriptPath.exists()) {

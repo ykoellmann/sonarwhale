@@ -99,10 +99,8 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
     private val tabs = CollapsibleTabPane()
 
     // Scripts-tab checkbox state (populated in buildScriptsTab, read in show*/save methods)
-    private val endpointPreChecks  = mutableMapOf<ScriptLevel, javax.swing.JCheckBox>()
-    private val endpointPostChecks = mutableMapOf<ScriptLevel, javax.swing.JCheckBox>()
-    private val requestPreChecks   = mutableMapOf<ScriptLevel, javax.swing.JCheckBox>()
-    private val requestPostChecks  = mutableMapOf<ScriptLevel, javax.swing.JCheckBox>()
+    private val requestPreChecks  = mutableMapOf<ScriptLevel, javax.swing.JCheckBox>()
+    private val requestPostChecks = mutableMapOf<ScriptLevel, javax.swing.JCheckBox>()
 
     var onResponseReceived: ((Int, String, Long) -> Unit)? = null
     /** Called after a successful save — use to refresh the tree. */
@@ -174,36 +172,19 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
         panel.layout = javax.swing.BoxLayout(panel, javax.swing.BoxLayout.Y_AXIS)
         panel.border = JBUI.Borders.empty(8)
 
-        val endpointPreBtn  = JButton("Endpoint Pre-script").apply  { addActionListener { openOrCreateScript(ScriptPhase.PRE,  ScriptLevel.ENDPOINT) } }
-        val endpointPostBtn = JButton("Endpoint Post-script").apply { addActionListener { openOrCreateScript(ScriptPhase.POST, ScriptLevel.ENDPOINT) } }
-        val requestPreBtn   = JButton("Request Pre-script").apply   { addActionListener { openOrCreateScript(ScriptPhase.PRE,  ScriptLevel.REQUEST) } }
-        val requestPostBtn  = JButton("Request Post-script").apply  { addActionListener { openOrCreateScript(ScriptPhase.POST, ScriptLevel.REQUEST) } }
+        val preBtn  = JButton("Pre-script").apply  { addActionListener { openOrCreateScript(ScriptPhase.PRE) } }
+        val postBtn = JButton("Post-script").apply { addActionListener { openOrCreateScript(ScriptPhase.POST) } }
 
-        val btnRow1 = JPanel(java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 4, 0)).also {
+        val btnRow = JPanel(java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 4, 0)).also {
             it.alignmentX = java.awt.Component.LEFT_ALIGNMENT
-            it.add(endpointPreBtn); it.add(endpointPostBtn)
-        }
-        val btnRow2 = JPanel(java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 4, 0)).also {
-            it.alignmentX = java.awt.Component.LEFT_ALIGNMENT
-            it.add(requestPreBtn); it.add(requestPostBtn)
+            it.add(preBtn); it.add(postBtn)
         }
 
-        val endpointLevels = listOf(ScriptLevel.GLOBAL, ScriptLevel.COLLECTION, ScriptLevel.TAG)
-        val requestLevels  = listOf(ScriptLevel.GLOBAL, ScriptLevel.COLLECTION, ScriptLevel.TAG, ScriptLevel.ENDPOINT)
+        val requestLevels = listOf(ScriptLevel.GLOBAL, ScriptLevel.COLLECTION, ScriptLevel.TAG, ScriptLevel.ENDPOINT)
 
-        panel.add(com.intellij.ui.components.JBLabel("Endpoint scripts:").apply { alignmentX = java.awt.Component.LEFT_ALIGNMENT })
-        panel.add(javax.swing.Box.createVerticalStrut(4))
-        panel.add(btnRow1)
-        panel.add(javax.swing.Box.createVerticalStrut(8))
-        panel.add(com.intellij.ui.components.JBLabel("Request scripts:").apply { alignmentX = java.awt.Component.LEFT_ALIGNMENT })
-        panel.add(javax.swing.Box.createVerticalStrut(4))
-        panel.add(btnRow2)
+        panel.add(btnRow)
         panel.add(javax.swing.Box.createVerticalStrut(12))
-        panel.add(com.intellij.ui.components.JBLabel("Disable inherited (all requests):").apply { alignmentX = java.awt.Component.LEFT_ALIGNMENT })
-        panel.add(javax.swing.Box.createVerticalStrut(4))
-        panel.add(buildToggleGrid(endpointLevels, endpointPreChecks, endpointPostChecks) { saveEndpointToggles() })
-        panel.add(javax.swing.Box.createVerticalStrut(10))
-        panel.add(com.intellij.ui.components.JBLabel("Disable inherited (this request):").apply { alignmentX = java.awt.Component.LEFT_ALIGNMENT })
+        panel.add(com.intellij.ui.components.JBLabel("Disable inherited:").apply { alignmentX = java.awt.Component.LEFT_ALIGNMENT })
         panel.add(javax.swing.Box.createVerticalStrut(4))
         panel.add(buildToggleGrid(requestLevels, requestPreChecks, requestPostChecks) { saveRequestToggles() })
         return panel
@@ -238,17 +219,6 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
         return grid
     }
 
-    private fun saveEndpointToggles() {
-        val ep = currentEndpoint ?: return
-        val existing = stateService.getEndpointConfig(ep.id)
-        val disabledPre  = endpointPreChecks.entries.filter  { !it.value.isSelected }.map { it.key.name }.toSet()
-        val disabledPost = endpointPostChecks.entries.filter { !it.value.isSelected }.map { it.key.name }.toSet()
-        stateService.setEndpointConfig(existing.copy(config = existing.config.copy(
-            disabledPreLevels = disabledPre,
-            disabledPostLevels = disabledPost
-        )))
-    }
-
     private fun saveRequestToggles() {
         val req = currentRequest ?: return
         val disabledPre  = requestPreChecks.entries.filter  { !it.value.isSelected }.map { it.key.name }.toSet()
@@ -258,11 +228,6 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
             disabledPostLevels = disabledPost
         ))
         autoSave()
-    }
-
-    private fun updateEndpointToggles(disabledPre: Set<String>, disabledPost: Set<String>) {
-        endpointPreChecks.forEach  { (level, cb) -> cb.isSelected = !disabledPre.contains(level.name) }
-        endpointPostChecks.forEach { (level, cb) -> cb.isSelected = !disabledPost.contains(level.name) }
     }
 
     private fun updateRequestToggles(disabledPre: Set<String>, disabledPost: Set<String>) {
@@ -298,8 +263,6 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
         )
 
         // Scripts tab toggles
-        val epCfg = stateService.getEndpointConfig(endpoint.id)
-        updateEndpointToggles(epCfg.config.disabledPreLevels, epCfg.config.disabledPostLevels)
         updateRequestToggles(request.config.disabledPreLevels, request.config.disabledPostLevels)
 
         // Body
@@ -351,7 +314,6 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
         )
 
         // Scripts tab toggles
-        updateEndpointToggles(endpointConfig.config.disabledPreLevels, endpointConfig.config.disabledPostLevels)
         updateRequestToggles(emptySet(), emptySet())
 
         if (hasBody) {
