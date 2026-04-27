@@ -334,7 +334,8 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
 
     private fun updateComputedUrl() {
         val endpoint = currentEndpoint ?: run { computedUrlField.text = ""; return }
-        val base = stateService.getActiveEnvironment()?.variables?.get("baseUrl")?.trimEnd('/') ?: ""
+        val colId = RouteIndexService.getInstance(project).getCollectionId(endpoint.id) ?: ""
+        val base = CollectionService.getInstance(project).getBaseUrl(colId)?.trimEnd('/') ?: ""
         var route = endpoint.path
 
         val paramRows = paramsTable.getRows()
@@ -354,12 +355,9 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
             }
 
         val assembled = base + route + if (query.isEmpty()) "" else "?" + query.joinToString("&")
-        val resolved = currentEndpoint?.let { ep ->
-            val varResolver = VariableResolver.getInstance(project)
-            val colId = RouteIndexService.getInstance(project).getCollectionId(ep.id) ?: ""
-            val varMap = varResolver.buildMap(colId, ep.id, currentRequest?.id)
-            varResolver.resolve(assembled, varMap)
-        } ?: assembled
+        val varResolver = VariableResolver.getInstance(project)
+        val varMap = varResolver.buildMap(colId, endpoint.id, currentRequest?.id)
+        val resolved = varResolver.resolve(assembled, varMap)
         computedUrlField.text = resolved
         computedUrlField.foreground = if (resolved.contains("{{"))
             JBColor(java.awt.Color(0xCC, 0x33, 0x00), java.awt.Color(0xFF, 0x66, 0x44))
@@ -481,12 +479,8 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
         val authResolver = AuthResolver.getInstance(project)
         val varMap = varResolver.buildMap(colId, endpoint.id, currentRequest?.id)
 
-        // Resolve URL; auth will be applied inside doInBackground on the actual builder
-        val resolvedUrlBuilder = StringBuilder(varResolver.resolve(rawUrl, varMap))
         val effectiveAuth = authResolver.resolve(colId, endpoint.id, currentRequest?.id)
-        // Apply auth now so query-param API keys are appended to the URL before use
-        authResolver.applyToRequest(HttpRequest.newBuilder(), resolvedUrlBuilder, effectiveAuth, varMap, varResolver)
-        val resolvedUrl = resolvedUrlBuilder.toString()
+        val resolvedUrl = varResolver.resolve(rawUrl, varMap)
 
         val headerRows = headersTable.getRows()
             .filter { it.enabled && it.key.isNotEmpty() }

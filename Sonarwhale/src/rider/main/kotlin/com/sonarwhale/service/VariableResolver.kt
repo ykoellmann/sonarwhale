@@ -45,9 +45,9 @@ class VariableResolver(private val project: Project) : VariableResolverPure() {
         val endpoint = routeService.endpoints.firstOrNull { it.id == endpointId }
         val tag = endpoint?.tags?.firstOrNull()
 
-        // TODO(Task 7): replace null stubs with CollectionService.getInstance(project)
-        val collectionVars = emptyList<com.sonarwhale.model.VariableEntry>()
-        val baseUrl: String? = null
+        val collectionService = CollectionService.getInstance(project)
+        val collectionVars = collectionService.getById(collectionId)?.config?.variables ?: emptyList()
+        val baseUrl = collectionService.getBaseUrl(collectionId)
 
         return buildMap(
             globalVars = state.getGlobalConfig().config.variables,
