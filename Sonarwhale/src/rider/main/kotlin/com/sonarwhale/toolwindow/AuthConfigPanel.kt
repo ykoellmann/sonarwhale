@@ -28,6 +28,8 @@ class AuthConfigPanel(
         border = JBUI.Borders.empty(0, 4)
     }
 
+    private var isLoading = false
+
     // Field components per auth type
     private val bearerTokenField = JTextField(auth.bearerToken)
     private val basicUserField = JTextField(auth.basicUsername)
@@ -76,29 +78,36 @@ class AuthConfigPanel(
     }
 
     fun setAuth(newAuth: AuthConfig, newInherited: AuthMode = AuthMode.NONE) {
-        auth = newAuth
-        inheritedMode = newInherited
-        modeCombo.selectedItem = auth.mode
-        bearerTokenField.text = auth.bearerToken
-        basicUserField.text = auth.basicUsername
-        basicPassField.text = auth.basicPassword
-        apiKeyNameField.text = auth.apiKeyName
-        apiKeyValueField.text = auth.apiKeyValue
-        apiKeyLocationCombo.selectedItem = auth.apiKeyLocation
-        oauthTokenUrlField.text = auth.oauthTokenUrl
-        oauthClientIdField.text = auth.oauthClientId
-        oauthClientSecretField.text = auth.oauthClientSecret
-        oauthScopeField.text = auth.oauthScope
-        updateDisplay()
+        isLoading = true
+        try {
+            auth = newAuth
+            inheritedMode = newInherited
+            modeCombo.selectedItem = auth.mode
+            bearerTokenField.text = auth.bearerToken
+            basicUserField.text = auth.basicUsername
+            basicPassField.text = auth.basicPassword
+            apiKeyNameField.text = auth.apiKeyName
+            apiKeyValueField.text = auth.apiKeyValue
+            apiKeyLocationCombo.selectedItem = auth.apiKeyLocation
+            oauthTokenUrlField.text = auth.oauthTokenUrl
+            oauthClientIdField.text = auth.oauthClientId
+            oauthClientSecretField.text = auth.oauthClientSecret
+            oauthScopeField.text = auth.oauthScope
+            updateDisplay()
+        } finally {
+            isLoading = false
+        }
     }
 
     private fun onModeChanged() {
+        if (isLoading) return
         auth = buildFromFields()
         updateDisplay()
         onChange?.invoke(auth)
     }
 
     private fun emitChange() {
+        if (isLoading) return
         auth = buildFromFields()
         onChange?.invoke(auth)
     }
