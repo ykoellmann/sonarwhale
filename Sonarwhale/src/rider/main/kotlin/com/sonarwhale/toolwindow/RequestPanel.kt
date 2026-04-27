@@ -20,6 +20,7 @@ import com.sonarwhale.model.SavedRequest
 import com.sonarwhale.script.ConsoleOutput
 import com.sonarwhale.script.ScriptLevel
 import com.sonarwhale.script.ScriptPhase
+import com.sonarwhale.model.HierarchyConfig
 import com.sonarwhale.script.SonarwhaleScriptService
 import com.sonarwhale.script.TestResult
 import com.sonarwhale.service.AuthResolver
@@ -67,16 +68,6 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
         toolTipText = "Mark as default (run by gutter icon)"
         isFocusable = false
     }
-    private val preScriptButton = JButton("Pre").apply {
-        font = font.deriveFont(10f)
-        toolTipText = "Create or open pre-script for this request"
-        isFocusable = false
-    }
-    private val postScriptButton = JButton("Post").apply {
-        font = font.deriveFont(10f)
-        toolTipText = "Create or open post-script for this request"
-        isFocusable = false
-    }
 
     // URL bar
     private val computedUrlField = JTextField().apply {
@@ -107,6 +98,12 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
 
     private val tabs = CollapsibleTabPane()
 
+    // Scripts-tab checkbox state (populated in buildScriptsTab, read in show*/save methods)
+    private val endpointPreChecks  = mutableMapOf<ScriptLevel, javax.swing.JCheckBox>()
+    private val endpointPostChecks = mutableMapOf<ScriptLevel, javax.swing.JCheckBox>()
+    private val requestPreChecks   = mutableMapOf<ScriptLevel, javax.swing.JCheckBox>()
+    private val requestPostChecks  = mutableMapOf<ScriptLevel, javax.swing.JCheckBox>()
+
     var onResponseReceived: ((Int, String, Long) -> Unit)? = null
     /** Called after a successful save — use to refresh the tree. */
     var onRequestSaved: (() -> Unit)? = null
@@ -134,6 +131,7 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
         tabs.addTab("Headers", headersTable)
         tabs.addTab("Body", bodyPanel)
         tabs.addTab("Auth", authConfigPanel)
+        tabs.addTab("Scripts", com.intellij.ui.components.JBScrollPane(buildScriptsTab()))
 
         add(buildTopBar(), BorderLayout.NORTH)
         add(tabs, BorderLayout.CENTER)
@@ -141,8 +139,6 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
         sendButton.addActionListener { sendRequest() }
         saveButton.addActionListener { if (previewMode) createNewRequest() else saveRequest() }
         setDefaultButton.addActionListener { setAsDefault() }
-        preScriptButton.addActionListener  { openOrCreateScript(ScriptPhase.PRE) }
-        postScriptButton.addActionListener { openOrCreateScript(ScriptPhase.POST) }
         paramsTable.addChangeListener { updateComputedUrl() }
     }
 
@@ -167,16 +163,111 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
         gbc.gridx = 2; gbc.insets = Insets(0, 0, 0, 4)
         bar.add(saveButton, gbc)
 
-        gbc.gridx = 3; gbc.insets = Insets(0, 0, 0, 4)
+        gbc.gridx = 3; gbc.insets = Insets(0, 0, 0, 0)
         bar.add(setDefaultButton, gbc)
 
-        gbc.gridx = 4; gbc.insets = Insets(0, 0, 0, 4)
-        bar.add(preScriptButton, gbc)
-
-        gbc.gridx = 5; gbc.insets = Insets(0, 0, 0, 0)
-        bar.add(postScriptButton, gbc)
-
         return bar
+    }
+
+    private fun buildScriptsTab(): JPanel {
+        val panel = JPanel()
+        panel.layout = javax.swing.BoxLayout(panel, javax.swing.BoxLayout.Y_AXIS)
+        panel.border = JBUI.Borders.empty(8)
+
+        val endpointPreBtn  = JButton("Endpoint Pre-script").apply  { addActionListener { openOrCreateScript(ScriptPhase.PRE,  ScriptLevel.ENDPOINT) } }
+        val endpointPostBtn = JButton("Endpoint Post-script").apply { addActionListener { openOrCreateScript(ScriptPhase.POST, ScriptLevel.ENDPOINT) } }
+        val requestPreBtn   = JButton("Request Pre-script").apply   { addActionListener { openOrCreateScript(ScriptPhase.PRE,  ScriptLevel.REQUEST) } }
+        val requestPostBtn  = JButton("Request Post-script").apply  { addActionListener { openOrCreateScript(ScriptPhase.POST, ScriptLevel.REQUEST) } }
+
+        val btnRow1 = JPanel(java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 4, 0)).also {
+            it.alignmentX = java.awt.Component.LEFT_ALIGNMENT
+            it.add(endpointPreBtn); it.add(endpointPostBtn)
+        }
+        val btnRow2 = JPanel(java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 4, 0)).also {
+            it.alignmentX = java.awt.Component.LEFT_ALIGNMENT
+            it.add(requestPreBtn); it.add(requestPostBtn)
+        }
+
+        val endpointLevels = listOf(ScriptLevel.GLOBAL, ScriptLevel.COLLECTION, ScriptLevel.TAG)
+        val requestLevels  = listOf(ScriptLevel.GLOBAL, ScriptLevel.COLLECTION, ScriptLevel.TAG, ScriptLevel.ENDPOINT)
+
+        panel.add(com.intellij.ui.components.JBLabel("Endpoint scripts:").apply { alignmentX = java.awt.Component.LEFT_ALIGNMENT })
+        panel.add(javax.swing.Box.createVerticalStrut(4))
+        panel.add(btnRow1)
+        panel.add(javax.swing.Box.createVerticalStrut(8))
+        panel.add(com.intellij.ui.components.JBLabel("Request scripts:").apply { alignmentX = java.awt.Component.LEFT_ALIGNMENT })
+        panel.add(javax.swing.Box.createVerticalStrut(4))
+        panel.add(btnRow2)
+        panel.add(javax.swing.Box.createVerticalStrut(12))
+        panel.add(com.intellij.ui.components.JBLabel("Disable inherited (all requests):").apply { alignmentX = java.awt.Component.LEFT_ALIGNMENT })
+        panel.add(javax.swing.Box.createVerticalStrut(4))
+        panel.add(buildToggleGrid(endpointLevels, endpointPreChecks, endpointPostChecks) { saveEndpointToggles() })
+        panel.add(javax.swing.Box.createVerticalStrut(10))
+        panel.add(com.intellij.ui.components.JBLabel("Disable inherited (this request):").apply { alignmentX = java.awt.Component.LEFT_ALIGNMENT })
+        panel.add(javax.swing.Box.createVerticalStrut(4))
+        panel.add(buildToggleGrid(requestLevels, requestPreChecks, requestPostChecks) { saveRequestToggles() })
+        return panel
+    }
+
+    private fun buildToggleGrid(
+        levels: List<ScriptLevel>,
+        preChecks: MutableMap<ScriptLevel, javax.swing.JCheckBox>,
+        postChecks: MutableMap<ScriptLevel, javax.swing.JCheckBox>,
+        onChanged: () -> Unit
+    ): JPanel {
+        val grid = JPanel(GridBagLayout())
+        grid.alignmentX = java.awt.Component.LEFT_ALIGNMENT
+        val gbc = GridBagConstraints().apply {
+            anchor = GridBagConstraints.WEST
+            insets = Insets(2, 0, 2, 8)
+        }
+        gbc.gridy = 0; gbc.gridx = 0; grid.add(JPanel(), gbc)
+        gbc.gridx = 1; grid.add(com.intellij.ui.components.JBLabel("Pre"), gbc)
+        gbc.gridx = 2; grid.add(com.intellij.ui.components.JBLabel("Post"), gbc)
+
+        levels.forEachIndexed { i, level ->
+            val preCb  = javax.swing.JCheckBox().apply { isSelected = true; addActionListener { onChanged() } }
+            val postCb = javax.swing.JCheckBox().apply { isSelected = true; addActionListener { onChanged() } }
+            preChecks[level]  = preCb
+            postChecks[level] = postCb
+            gbc.gridy = i + 1
+            gbc.gridx = 0; grid.add(com.intellij.ui.components.JBLabel(level.name.lowercase().replaceFirstChar { it.uppercase() }), gbc)
+            gbc.gridx = 1; grid.add(preCb,  gbc)
+            gbc.gridx = 2; grid.add(postCb, gbc)
+        }
+        return grid
+    }
+
+    private fun saveEndpointToggles() {
+        val ep = currentEndpoint ?: return
+        val existing = stateService.getEndpointConfig(ep.id)
+        val disabledPre  = endpointPreChecks.entries.filter  { !it.value.isSelected }.map { it.key.name }.toSet()
+        val disabledPost = endpointPostChecks.entries.filter { !it.value.isSelected }.map { it.key.name }.toSet()
+        stateService.setEndpointConfig(existing.copy(config = existing.config.copy(
+            disabledPreLevels = disabledPre,
+            disabledPostLevels = disabledPost
+        )))
+    }
+
+    private fun saveRequestToggles() {
+        val req = currentRequest ?: return
+        val disabledPre  = requestPreChecks.entries.filter  { !it.value.isSelected }.map { it.key.name }.toSet()
+        val disabledPost = requestPostChecks.entries.filter { !it.value.isSelected }.map { it.key.name }.toSet()
+        currentRequest = req.copy(config = req.config.copy(
+            disabledPreLevels = disabledPre,
+            disabledPostLevels = disabledPost
+        ))
+        autoSave()
+    }
+
+    private fun updateEndpointToggles(disabledPre: Set<String>, disabledPost: Set<String>) {
+        endpointPreChecks.forEach  { (level, cb) -> cb.isSelected = !disabledPre.contains(level.name) }
+        endpointPostChecks.forEach { (level, cb) -> cb.isSelected = !disabledPost.contains(level.name) }
+    }
+
+    private fun updateRequestToggles(disabledPre: Set<String>, disabledPost: Set<String>) {
+        requestPreChecks.forEach  { (level, cb) -> cb.isSelected = !disabledPre.contains(level.name) }
+        requestPostChecks.forEach { (level, cb) -> cb.isSelected = !disabledPost.contains(level.name) }
     }
 
     /** Show a specific named request for an endpoint. */
@@ -205,6 +296,11 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
             newAuth = request.config.auth,
             newInherited = resolveInheritedAuthMode(endpoint)
         )
+
+        // Scripts tab toggles
+        val epCfg = stateService.getEndpointConfig(endpoint.id)
+        updateEndpointToggles(epCfg.config.disabledPreLevels, epCfg.config.disabledPostLevels)
+        updateRequestToggles(request.config.disabledPreLevels, request.config.disabledPostLevels)
 
         // Body
         if (hasBody) {
@@ -253,6 +349,10 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
             newAuth = endpointConfig.config.auth,
             newInherited = resolveInheritedAuthMode(endpoint)
         )
+
+        // Scripts tab toggles
+        updateEndpointToggles(endpointConfig.config.disabledPreLevels, endpointConfig.config.disabledPostLevels)
+        updateRequestToggles(emptySet(), emptySet())
 
         if (hasBody) {
             bodyPanel.setContent(BodyContent.Raw(buildBodyTemplate(endpoint), "application/json"))
@@ -364,13 +464,13 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
         else JBColor.GRAY
     }
 
-    private fun openOrCreateScript(phase: ScriptPhase) {
+    private fun openOrCreateScript(phase: ScriptPhase, level: ScriptLevel = ScriptLevel.REQUEST) {
         val endpoint = currentEndpoint ?: return
         val request  = currentRequest ?: SavedRequest(name = currentRequestName)
         val scriptService = SonarwhaleScriptService.getInstance(project)
         ProgressManager.getInstance().run(object : Task.Backgroundable(project, "Creating script…", false) {
             override fun run(indicator: com.intellij.openapi.progress.ProgressIndicator) {
-                val path = scriptService.getOrCreateScript(endpoint, request, phase, ScriptLevel.REQUEST)
+                val path = scriptService.getOrCreateScript(endpoint, request, phase, level)
                 val vf = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(path) ?: return
                 com.intellij.openapi.application.ApplicationManager.getApplication().invokeLater {
                     FileEditorManager.getInstance(project).openFile(vf, true)
@@ -494,6 +594,13 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
         }
 
         val savedRequest = currentRequest ?: SavedRequest(name = currentRequestName)
+
+        // Effective disabled script levels = union of endpoint config + request config
+        val epCfg  = stateService.getEndpointConfig(endpoint.id)
+        val reqCfg = currentRequest?.config ?: HierarchyConfig()
+        val effectiveDisabledPre  = epCfg.config.disabledPreLevels  + reqCfg.disabledPreLevels
+        val effectiveDisabledPost = epCfg.config.disabledPostLevels + reqCfg.disabledPostLevels
+
         val scriptService = SonarwhaleScriptService.getInstance(project)
         val consoleOutput = ConsoleOutput()
 
@@ -509,14 +616,20 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
                     else -> ""
                 }
                 val ctx = scriptService.executePreScripts(
-                    endpoint = endpoint,
-                    request  = savedRequest,
-                    url      = resolvedUrl,
-                    headers  = initialHeaders,
-                    body     = initialBody,
-                    console  = consoleOutput
+                    endpoint       = endpoint,
+                    request        = savedRequest,
+                    url            = resolvedUrl,
+                    headers        = initialHeaders,
+                    body           = initialBody,
+                    varMap         = varMap,
+                    collectionId   = colId,
+                    disabledLevels = effectiveDisabledPre,
+                    console        = consoleOutput
                 )
                 scriptContext = ctx
+
+                // Merge env changes from pre-scripts so tokens set by sw.env.set() are available for auth
+                val postScriptVarMap = varMap.toMutableMap().also { it.putAll(ctx.envSnapshot) }
 
                 val finalUrl     = ctx.request.url
                 val finalHeaders = ctx.request.headers
@@ -528,9 +641,9 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
                     .uri(URI.create(finalUrl))
                     .timeout(Duration.ofSeconds(30))
 
-                // Apply auth headers (header-based modes; query-param already in resolvedUrl)
+                // Apply auth headers using postScriptVarMap so pre-script env changes are visible
                 val authUrlForBuilder = StringBuilder(finalUrl)
-                authResolver.applyToRequest(builder, authUrlForBuilder, effectiveAuth, varMap, varResolver)
+                authResolver.applyToRequest(builder, authUrlForBuilder, effectiveAuth, postScriptVarMap, varResolver)
                 // Apply non-auth headers from script context
                 finalHeaders.forEach { (k, v) -> runCatching { builder.header(k, v) } }
                 val hasContentType = finalHeaders.keys.any { it.equals("content-type", ignoreCase = true) }
@@ -618,6 +731,9 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
                     responseHeaders = responseHeaders,
                     responseBody    = response.body(),
                     scriptContext   = ctx,
+                    collectionId    = colId,
+                    originalVarMap  = varMap,
+                    disabledLevels  = effectiveDisabledPost,
                     console         = consoleOutput
                 )
 
