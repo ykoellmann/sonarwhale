@@ -74,8 +74,8 @@ class DetailPanel(private val project: Project) : JPanel(BorderLayout()), DataPr
     private val headerHolder = JPanel(BorderLayout()).also { it.isVisible = false }
 
     init {
-        requestPanel.onResponseReceived = { status, body, duration ->
-            responsePanel.showResponse(status, body, duration)
+        requestPanel.onResponseReceived = { status, body, duration, contentType ->
+            responsePanel.showResponse(status, body, duration, contentType)
         }
         requestPanel.onTestResultsReceived = { results ->
             responsePanel.showTestResults(results)

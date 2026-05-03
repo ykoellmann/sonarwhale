@@ -111,7 +111,7 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
     private lateinit var scriptsPanel: JPanel
     private var scriptsToggleSection: JComponent? = null
 
-    var onResponseReceived: ((Int, String, Long) -> Unit)? = null
+    var onResponseReceived: ((Int, String, Long, String) -> Unit)? = null
     /** Called after a successful save — use to refresh the tree. */
     var onRequestSaved: (() -> Unit)? = null
     /** Called when the default state changes (true = is now default). */
@@ -623,11 +623,11 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
         val scriptService = SonarwhaleScriptService.getInstance(project)
         val consoleOutput = ConsoleOutput()
 
-        object : SwingWorker<Triple<Int, String, Long>, Unit>() {
+        object : SwingWorker<Pair<Triple<Int, String, Long>, String>, Unit>() {
             private var testResults: List<TestResult> = emptyList()
             private var scriptContext: com.sonarwhale.script.ScriptContext? = null
 
-            override fun doInBackground(): Triple<Int, String, Long> {
+            override fun doInBackground(): Pair<Triple<Int, String, Long>, String> {
                 // ── Pre-scripts ────────────────────────────────────────────────
                 val initialHeaders = headerRows.associate { it.key.trim() to it.value.trim() }.toMutableMap()
                 val initialBody = when (val bc = bodyContent) {
@@ -756,18 +756,21 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
                     console         = consoleOutput
                 )
 
-                return Triple(response.statusCode(), response.body(), duration)
+                val contentType: String = response.headers().firstValue("content-type").orElse("") ?: ""
+                return Triple(response.statusCode(), response.body(), duration) to contentType
             }
 
             override fun done() {
                 sendButton.isEnabled = true
                 runCatching {
-                    val (status, body, duration) = get()
-                    onResponseReceived?.invoke(status, body, duration)
+                    val result = get()
+                    val (status, body, duration) = result.first
+                    val contentType = result.second
+                    onResponseReceived?.invoke(status, body, duration, contentType)
                     onTestResultsReceived?.invoke(testResults)
                     onConsoleReceived?.invoke(consoleOutput.entries)
                 }.onFailure { e ->
-                    onResponseReceived?.invoke(0, describeError(e), 0)
+                    onResponseReceived?.invoke(0, describeError(e), 0, "")
                     onTestResultsReceived?.invoke(emptyList())
                     onConsoleReceived?.invoke(consoleOutput.entries)
                 }

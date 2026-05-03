@@ -41,8 +41,9 @@ class ResponsePanel(private val project: Project) : JPanel(BorderLayout()) {
     private val openButton = JButton("Open in Editor").apply {
         font = font.deriveFont(10f)
         isVisible = false
-        toolTipText = "Open response in a new editor tab with JSON highlighting"
     }
+
+    private var currentContentType = ""
     private val collapseIcon = JBLabel(AllIcons.General.ArrowDown).apply {
         toolTipText = "Collapse response panel"
         border = JBUI.Borders.empty(0, 4, 0, 0)
@@ -120,9 +121,9 @@ class ResponsePanel(private val project: Project) : JPanel(BorderLayout()) {
             .forEach { it.addMouseListener(clickHandler); it.cursor = handCursor }
     }
 
-    fun showResponse(statusCode: Int, body: String, durationMs: Long) {
+    fun showResponse(statusCode: Int, body: String, durationMs: Long, contentType: String = "") {
+        currentContentType = contentType
         if (statusCode == 0) {
-            // Not an HTTP response — a connection/network error.
             statusLabel.text = "Error"
             statusLabel.foreground = JBColor(Color(0xCC, 0x00, 0x00), Color(0xFF, 0x44, 0x44))
             durationLabel.text = ""
@@ -139,12 +140,16 @@ class ResponsePanel(private val project: Project) : JPanel(BorderLayout()) {
         openButton.isVisible = false
 
         object : SwingWorker<String, Unit>() {
-            override fun doInBackground(): String = tryFormatJson(body)
+            override fun doInBackground(): String = formatBody(body, contentType)
             override fun done() {
                 val text = runCatching { get() }.getOrDefault(body)
                 bodyArea.text = text
                 bodyArea.caretPosition = 0
-                openButton.isVisible = text.isNotEmpty()
+                if (text.isNotEmpty()) {
+                    val (_, ext) = contentTypeToLangAndExt(currentContentType)
+                    openButton.toolTipText = "Open in editor as .$ext"
+                    openButton.isVisible = true
+                }
             }
         }.execute()
     }
@@ -155,6 +160,7 @@ class ResponsePanel(private val project: Project) : JPanel(BorderLayout()) {
         durationLabel.text = ""
         bodyArea.text = ""
         openButton.isVisible = false
+        currentContentType = ""
         testsPanel.removeAll()
         tabs.setTitleAt(tabs.indexOfComponent(testsScroll), "Tests")
         consolePanel.showEntries(emptyList())
@@ -216,12 +222,27 @@ class ResponsePanel(private val project: Project) : JPanel(BorderLayout()) {
 
     private fun openInEditor() {
         val content = bodyArea.text.ifEmpty { return }
-        // Resolve JSON language at runtime — available in Rider without a compile-time dependency
-        val lang = Language.findLanguageByID("JSON") ?: PlainTextLanguage.INSTANCE
+        val (langId, ext) = contentTypeToLangAndExt(currentContentType)
+        val lang = langId.takeIf { it.isNotEmpty() }?.let { Language.findLanguageByID(it) }
+            ?: PlainTextLanguage.INSTANCE
         val scratch = ScratchRootType.getInstance()
-            .createScratchFile(project, "sonarwhale-response.json", lang, content)
+            .createScratchFile(project, "sonarwhale-response.$ext", lang, content)
             ?: return
         FileEditorManager.getInstance(project).openFile(scratch, true)
+    }
+
+    private fun contentTypeToLangAndExt(contentType: String): Pair<String, String> {
+        val ct = contentType.lowercase()
+        return when {
+            "json"                       in ct -> "JSON"       to "json"
+            "html"                       in ct -> "HTML"       to "html"
+            "xml"                        in ct -> "XML"        to "xml"
+            "javascript" in ct || "ecmascript" in ct -> "JavaScript" to "js"
+            "css"                        in ct -> "CSS"        to "css"
+            "yaml"                       in ct -> "yaml"       to "yaml"
+            "plain"                      in ct -> ""           to "txt"
+            else                               -> ""           to "txt"
+        }
     }
 
     private fun statusColor(code: Int): Color = when {
@@ -232,10 +253,16 @@ class ResponsePanel(private val project: Project) : JPanel(BorderLayout()) {
         else             -> JBColor.GRAY
     }
 
-    private fun tryFormatJson(text: String): String {
+    private fun formatBody(text: String, contentType: String): String {
+        val ct = contentType.lowercase()
         val trimmed = text.trim()
-        if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return text
-        return runCatching { formatJson(trimmed) }.getOrDefault(text)
+        return when {
+            "json" in ct || (ct.isEmpty() && (trimmed.startsWith("{") || trimmed.startsWith("[")))
+                -> runCatching { formatJson(trimmed) }.getOrDefault(text)
+            "xml" in ct || "html" in ct
+                -> runCatching { formatXml(trimmed) }.getOrDefault(text)
+            else -> text
+        }
     }
 
     private fun formatJson(json: String): String {
@@ -258,5 +285,19 @@ class ResponsePanel(private val project: Project) : JPanel(BorderLayout()) {
             i++
         }
         return sb.toString()
+    }
+
+    private fun formatXml(xml: String): String {
+        val transformer = javax.xml.transform.TransformerFactory.newInstance().newTransformer().apply {
+            setOutputProperty(javax.xml.transform.OutputKeys.INDENT, "yes")
+            setOutputProperty("{http://xml.apache.org/xslt}indent-amount", "2")
+            setOutputProperty(javax.xml.transform.OutputKeys.OMIT_XML_DECLARATION, "yes")
+        }
+        val result = java.io.StringWriter()
+        transformer.transform(
+            javax.xml.transform.stream.StreamSource(java.io.StringReader(xml)),
+            javax.xml.transform.stream.StreamResult(result)
+        )
+        return result.toString().trim()
     }
 }
