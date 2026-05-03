@@ -46,6 +46,9 @@ class SonarwhaleConfigurable(private val project: Project) : Configurable {
     private val timeoutSpinner        = JSpinner(SpinnerNumberModel(30, 1, 300, 1))
     private val defaultContentTypeField = JBTextField(20)
 
+    // Cached on reset(); compared in isModified() to avoid re-parsing JSON on every IDE poll
+    private var lastLoaded = SonarwhaleGeneralSettings()
+
     // ── Configurable ──────────────────────────────────────────────────────────
 
     override fun getDisplayName() = "Sonarwhale"
@@ -124,11 +127,12 @@ class SonarwhaleConfigurable(private val project: Project) : Configurable {
         return panel
     }
 
-    override fun isModified(): Boolean =
-        state() != SonarwhaleStateService.getInstance(project).getGeneralSettings()
+    override fun isModified(): Boolean = state() != lastLoaded
 
     override fun apply() {
-        SonarwhaleStateService.getInstance(project).setGeneralSettings(state())
+        val s = state()
+        lastLoaded = s
+        SonarwhaleStateService.getInstance(project).setGeneralSettings(s)
 
         SonarwhaleGutterService.getInstance(project).applySettings()
         RouteIndexService.getInstance(project).restartIntervalRefresh()
@@ -137,8 +141,10 @@ class SonarwhaleConfigurable(private val project: Project) : Configurable {
         (tw.contentManager.getContent(0)?.component as? SonarwhalePanel)?.applyGeneralSettings()
     }
 
+
     override fun reset() {
         val s = SonarwhaleStateService.getInstance(project).getGeneralSettings()
+        lastLoaded = s
         gutterIconsCheck.isSelected      = s.gutterIconsEnabled
         autoFormatCheck.isSelected       = s.autoFormatResponse
         followRedirectsCheck.isSelected  = s.followRedirects

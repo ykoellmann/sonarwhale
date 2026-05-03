@@ -1,11 +1,11 @@
 package com.sonarwhale.settings
 
+import com.intellij.icons.AllIcons
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
 import com.intellij.openapi.options.Configurable
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.TextFieldWithBrowseButton
 import com.intellij.ui.JBColor
-import com.intellij.ui.ToolbarDecorator
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBList
 import com.intellij.util.ui.JBUI
@@ -22,6 +22,7 @@ import java.awt.Insets
 import java.util.UUID
 import javax.swing.ButtonGroup
 import javax.swing.DefaultListModel
+import javax.swing.JButton
 import javax.swing.JComponent
 import javax.swing.JOptionPane
 import javax.swing.JPanel
@@ -33,67 +34,70 @@ import javax.swing.JTextField
 import javax.swing.ListSelectionModel
 import javax.swing.SpinnerNumberModel
 
+/**
+ * Settings page for managing collections and their OpenAPI sources.
+ * One collection = one API source (ServerUrl, FilePath, or StaticImport).
+ * Environments (variable sets) are managed in the tool window.
+ */
 class SonarwhaleSourcesConfigurable(private val project: Project) : Configurable {
 
     private val service: CollectionService get() = CollectionService.getInstance(project)
 
-    // Work with the first collection's environments as a flat list (Task 20 will redo this UI)
-    private var envs: MutableList<CollectionEnvironment> = mutableListOf()
+    // Local working copy — changes committed only on apply()
+    private var collections: MutableList<ApiCollection> = mutableListOf()
+    private var selectedIdx = -1
     private var modified = false
+    private var suppressListener = false
 
     private val listModel = DefaultListModel<String>()
-    private val envList = JBList(listModel).apply {
+    private val collectionList = JBList(listModel).apply {
         selectionMode = ListSelectionModel.SINGLE_SELECTION
     }
 
-    private val nameField    = JTextField()
-    private val radioServer  = JRadioButton("Server URL")
-    private val radioFile    = JRadioButton("File path")
-    private val radioStatic  = JRadioButton("Static JSON")
-    private val sourceGroup  = ButtonGroup().also { it.add(radioServer); it.add(radioFile); it.add(radioStatic) }
+    // Detail fields
+    private val nameField       = JTextField()
+    private val radioServer     = JRadioButton("Server URL")
+    private val radioFile       = JRadioButton("File path")
+    private val radioStatic     = JRadioButton("Static JSON")
+    @Suppress("UNUSED_VARIABLE")
+    private val sourceGroup     = ButtonGroup().also { it.add(radioServer); it.add(radioFile); it.add(radioStatic) }
     private val sourceCardLayout = CardLayout()
-    private val sourceCards  = JPanel(sourceCardLayout)
+    private val sourceCards     = JPanel(sourceCardLayout)
 
-    private val hostField    = JTextField("http://localhost")
-    private val portSpinner  = JSpinner(SpinnerNumberModel(5000, 1, 65535, 1))
-    private val pathField    = JTextField().also { it.toolTipText = "Leave empty for auto-discovery" }
-    private val filePathField = TextFieldWithBrowseButton()
-    private val staticArea   = JTextArea(10, 40).also {
+    private val hostField       = JTextField("http://localhost")
+    private val portSpinner     = JSpinner(SpinnerNumberModel(5000, 1, 65535, 1))
+    private val pathField       = JTextField().also { it.toolTipText = "Leave empty for auto-discovery" }
+    private val filePathField   = TextFieldWithBrowseButton()
+    private val staticArea      = JTextArea(10, 40).also {
         it.font = Font(Font.MONOSPACED, Font.PLAIN, 11)
         it.lineWrap = false
         it.toolTipText = "Paste your OpenAPI JSON here"
     }
 
-    private var selectedIdx      = -1
-    private var suppressListener = false
-
     override fun getDisplayName() = "Sources"
 
     override fun createComponent(): JComponent {
         reset()
+
         filePathField.addBrowseFolderListener(
-            "Select OpenAPI file", "Choose a swagger.json or openapi.yaml file",
-            project,
+            "Select OpenAPI file", "Choose a swagger.json or openapi.yaml file", project,
             FileChooserDescriptorFactory.createSingleFileNoJarsDescriptor()
                 .withFileFilter { it.extension?.lowercase() in listOf("json", "yaml", "yml") }
         )
+
         buildSourceCards()
 
-        envList.addListSelectionListener { e ->
+        collectionList.addListSelectionListener { e ->
             if (!e.valueIsAdjusting && !suppressListener) {
-                saveCurrentToEnv()
-                selectedIdx = envList.selectedIndex
-                loadEnv()
+                saveCurrentToCollection()
+                selectedIdx = collectionList.selectedIndex
+                loadCollection()
             }
         }
 
-        if (envs.isNotEmpty()) {
-            selectedIdx = 0
-            suppressListener = true
-            envList.selectedIndex = 0
-            suppressListener = false
-            loadEnv()
-        }
+        radioServer.addActionListener { sourceCardLayout.show(sourceCards, "server"); modified = true }
+        radioFile.addActionListener   { sourceCardLayout.show(sourceCards, "file");   modified = true }
+        radioStatic.addActionListener { sourceCardLayout.show(sourceCards, "static"); modified = true }
 
         val root = JPanel(BorderLayout(8, 0))
         root.add(buildListPanel(), BorderLayout.WEST)
@@ -104,72 +108,99 @@ class SonarwhaleSourcesConfigurable(private val project: Project) : Configurable
     override fun isModified() = modified
 
     override fun apply() {
-        saveCurrentToEnv()
-        // Persist the flat environment list back into the first collection (Task 20 will redo this)
-        val col = service.getAll().firstOrNull()
-        if (col != null) {
-            service.update(col.copy(environments = envs.toList()))
-        } else {
-            service.add(ApiCollection(name = "My API", environments = envs.toList(),
-                activeEnvironmentId = envs.firstOrNull()?.id))
+        saveCurrentToCollection()
+        val serviceIds = service.getAll().map { it.id }.toSet()
+        for (col in collections) {
+            if (col.id in serviceIds) service.update(col) else service.add(col)
         }
+        serviceIds.filter { id -> collections.none { it.id == id } }.forEach { service.remove(it) }
         modified = false
     }
 
     override fun reset() {
-        envs = (service.getAll().firstOrNull()?.environments ?: emptyList()).toMutableList()
+        collections = service.getAll().toMutableList()
+        suppressListener = true
         listModel.clear()
-        envs.forEach { listModel.addElement(it.name) }
-        selectedIdx = -1
-        if (envs.isNotEmpty()) {
-            selectedIdx = 0
-            suppressListener = true
-            envList.selectedIndex = 0
-            suppressListener = false
-            loadEnv()
+        collections.forEach { listModel.addElement(it.name) }
+        selectedIdx = if (collections.isNotEmpty()) 0 else -1
+        if (selectedIdx >= 0) {
+            collectionList.selectedIndex = selectedIdx
+            loadCollection()
         } else {
             clearDetail()
         }
+        suppressListener = false
         modified = false
     }
 
-    private fun buildListPanel(): JPanel {
-        val decorator = ToolbarDecorator.createDecorator(envList)
-            .setAddAction {
-                val name = JOptionPane.showInputDialog(
-                    envList, "Environment name:", "New Source", JOptionPane.PLAIN_MESSAGE
-                )?.trim() ?: return@setAddAction
-                if (name.isEmpty()) return@setAddAction
-                saveCurrentToEnv()
-                val env = CollectionEnvironment(
-                    id = UUID.randomUUID().toString(), name = name,
-                    source = EnvironmentSource.ServerUrl(host = "http://localhost", port = 5000)
-                )
-                envs.add(env)
-                listModel.addElement(env.name)
-                suppressListener = true; envList.selectedIndex = envs.size - 1; suppressListener = false
-                selectedIdx = envs.size - 1
-                loadEnv(); modified = true
-            }
-            .setRemoveAction {
-                val idx = envList.selectedIndex.takeIf { it >= 0 } ?: return@setRemoveAction
-                envs.removeAt(idx); listModel.removeElementAt(idx)
-                selectedIdx = -1; clearDetail()
-                if (envs.isNotEmpty()) {
-                    val newIdx = (idx - 1).coerceAtLeast(0)
-                    suppressListener = true; envList.selectedIndex = newIdx; suppressListener = false
-                    selectedIdx = newIdx; loadEnv()
-                }
-                modified = true
-            }
-            .disableUpDownActions()
+    // ── List panel ────────────────────────────────────────────────────────────
 
-        val panel = JPanel(BorderLayout(0, 4))
-        panel.add(sectionLabel("Sources"), BorderLayout.NORTH)
-        panel.add(decorator.createPanel(), BorderLayout.CENTER)
-        panel.preferredSize = JBUI.size(160, 360)
+    private fun buildListPanel(): JPanel {
+        val addBtn = JButton(AllIcons.General.Add).apply {
+            isBorderPainted = false; isContentAreaFilled = false
+            toolTipText = "Add collection"
+            addActionListener { addCollection() }
+        }
+        val removeBtn = JButton(AllIcons.General.Remove).apply {
+            isBorderPainted = false; isContentAreaFilled = false
+            toolTipText = "Remove collection"
+            addActionListener { removeCollection() }
+        }
+        val toolbar = JPanel(java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 2, 2)).also {
+            it.isOpaque = false; it.add(addBtn); it.add(removeBtn)
+        }
+
+        val panel = JPanel(BorderLayout())
+        panel.add(toolbar, BorderLayout.NORTH)
+        panel.add(JScrollPane(collectionList), BorderLayout.CENTER)
+        panel.preferredSize = JBUI.size(180, 360)
         return panel
     }
+
+    private fun addCollection() {
+        val name = JOptionPane.showInputDialog(
+            collectionList, "Collection name:", "New Collection", JOptionPane.PLAIN_MESSAGE
+        )?.trim() ?: return
+        if (name.isEmpty()) return
+        saveCurrentToCollection()
+        val col = ApiCollection(
+            name = name,
+            environments = listOf(CollectionEnvironment(
+                id = UUID.randomUUID().toString(),
+                name = "default",
+                source = EnvironmentSource.ServerUrl("http://localhost", 5000)
+            ))
+        )
+        collections.add(col)
+        listModel.addElement(col.name)
+        suppressListener = true
+        collectionList.selectedIndex = collections.size - 1
+        suppressListener = false
+        selectedIdx = collections.size - 1
+        loadCollection()
+        modified = true
+    }
+
+    private fun removeCollection() {
+        val idx = collectionList.selectedIndex.takeIf { it >= 0 } ?: return
+        val col = collections[idx]
+        val confirm = JOptionPane.showConfirmDialog(
+            collectionList, "Remove collection \"${col.name}\"?",
+            "Remove Collection", JOptionPane.YES_NO_OPTION
+        )
+        if (confirm != JOptionPane.YES_OPTION) return
+        collections.removeAt(idx)
+        listModel.removeElementAt(idx)
+        val newIdx = if (collections.isEmpty()) -1 else (idx - 1).coerceAtLeast(0)
+        selectedIdx = newIdx
+        suppressListener = true
+        if (newIdx >= 0) collectionList.selectedIndex = newIdx
+        suppressListener = false
+        if (newIdx >= 0) loadCollection() else clearDetail()
+        modified = true
+    }
+
+    // ── Detail panel ──────────────────────────────────────────────────────────
 
     private fun buildDetailPanel(): JPanel {
         val gbc = GridBagConstraints().also {
@@ -185,7 +216,7 @@ class SonarwhaleSourcesConfigurable(private val project: Project) : Configurable
         form.add(nameField, gbc); gbc.gridwidth = 1
 
         gbc.gridy = 1; gbc.gridx = 0; gbc.weightx = 0.0
-        form.add(JBLabel("Source:"), gbc)
+        form.add(JBLabel("Source type:"), gbc)
         val radioPanel = JPanel().also { p ->
             p.isOpaque = false; p.add(radioServer); p.add(radioFile); p.add(radioStatic)
         }
@@ -195,14 +226,11 @@ class SonarwhaleSourcesConfigurable(private val project: Project) : Configurable
         gbc.gridy = 2; gbc.gridx = 0; gbc.gridwidth = 3; gbc.weightx = 1.0
         form.add(sourceCards, gbc)
 
-        radioServer.addActionListener { sourceCardLayout.show(sourceCards, "server"); modified = true }
-        radioFile.addActionListener   { sourceCardLayout.show(sourceCards, "file");   modified = true }
-        radioStatic.addActionListener { sourceCardLayout.show(sourceCards, "static"); modified = true }
-
         val panel = JPanel(BorderLayout())
         panel.border = JBUI.Borders.customLineLeft(JBColor.border())
-        panel.add(sectionLabel("Configuration").also {
-            it.border = JBUI.Borders.compound(
+        panel.add(JBLabel("Configuration").apply {
+            foreground = JBColor.GRAY; font = font.deriveFont(Font.PLAIN, 11f)
+            border = JBUI.Borders.compound(
                 JBUI.Borders.customLineBottom(JBColor.border()), JBUI.Borders.empty(6, 8))
         }, BorderLayout.NORTH)
         panel.add(form, BorderLayout.CENTER)
@@ -210,6 +238,7 @@ class SonarwhaleSourcesConfigurable(private val project: Project) : Configurable
     }
 
     private fun buildSourceCards() {
+        // Server URL card
         val serverPanel = JPanel(GridBagLayout())
         serverPanel.border = JBUI.Borders.empty(6, 0)
         val sg = GridBagConstraints().also { it.fill = GridBagConstraints.HORIZONTAL; it.insets = Insets(2, 4, 2, 4) }
@@ -222,10 +251,11 @@ class SonarwhaleSourcesConfigurable(private val project: Project) : Configurable
         sg.gridy = 2; sg.gridx = 0; sg.weightx = 0.0; serverPanel.add(JBLabel("OpenAPI path:"), sg)
         sg.gridx = 1; sg.weightx = 1.0; serverPanel.add(pathField, sg)
         sg.gridy = 3; sg.gridx = 0; sg.gridwidth = 2; sg.weightx = 1.0
-        serverPanel.add(JBLabel("Leave path empty for auto-discovery (tries /swagger/v1/swagger.json etc.)").apply {
+        serverPanel.add(JBLabel("Leave path empty for auto-discovery.").apply {
             foreground = JBColor.GRAY; font = font.deriveFont(10f)
         }, sg)
 
+        // File path card
         val filePanel = JPanel(GridBagLayout())
         filePanel.border = JBUI.Borders.empty(6, 0)
         val fg = GridBagConstraints().also { it.fill = GridBagConstraints.HORIZONTAL; it.insets = Insets(2, 4, 2, 4) }
@@ -236,6 +266,7 @@ class SonarwhaleSourcesConfigurable(private val project: Project) : Configurable
             foreground = JBColor.GRAY; font = font.deriveFont(10f)
         }, fg)
 
+        // Static JSON card
         val staticPanel = JPanel(BorderLayout(0, 4))
         staticPanel.border = JBUI.Borders.empty(6, 4)
         staticPanel.add(JBLabel("Paste OpenAPI JSON:").apply {
@@ -248,52 +279,62 @@ class SonarwhaleSourcesConfigurable(private val project: Project) : Configurable
         sourceCards.add(staticPanel, "static")
     }
 
-    private fun loadEnv() {
-        val env = envs.getOrNull(selectedIdx) ?: run { clearDetail(); return }
-        suppressListener = true
-        nameField.text = env.name
-        when (val s = env.source) {
+    // ── Load / save helpers ───────────────────────────────────────────────────
+
+    private fun loadCollection() {
+        val col = collections.getOrNull(selectedIdx) ?: run { clearDetail(); return }
+        val source = col.environments.firstOrNull { it.id == col.activeEnvironmentId }?.source
+            ?: col.environments.firstOrNull()?.source
+            ?: EnvironmentSource.ServerUrl("http://localhost", 5000)
+        nameField.text = col.name
+        when (source) {
             is EnvironmentSource.ServerUrl -> {
                 radioServer.isSelected = true; sourceCardLayout.show(sourceCards, "server")
-                hostField.text = s.host; portSpinner.value = s.port; pathField.text = s.openApiPath ?: ""
+                hostField.text = source.host; portSpinner.value = source.port
+                pathField.text = source.openApiPath ?: ""
             }
             is EnvironmentSource.FilePath -> {
                 radioFile.isSelected = true; sourceCardLayout.show(sourceCards, "file")
-                filePathField.text = s.path
+                filePathField.text = source.path
             }
             is EnvironmentSource.StaticImport -> {
                 radioStatic.isSelected = true; sourceCardLayout.show(sourceCards, "static")
-                staticArea.text = s.cachedContent
+                staticArea.text = source.cachedContent
             }
         }
-        suppressListener = false
+    }
+
+    private fun saveCurrentToCollection() {
+        val col = collections.getOrNull(selectedIdx) ?: return
+        val name = nameField.text.trim().ifEmpty { col.name }
+        val source: EnvironmentSource = when {
+            radioServer.isSelected -> EnvironmentSource.ServerUrl(
+                host = hostField.text.trim().ifEmpty { "http://localhost" },
+                port = portSpinner.value as Int,
+                openApiPath = pathField.text.trim().ifEmpty { null }
+            )
+            radioFile.isSelected -> EnvironmentSource.FilePath(path = filePathField.text.trim())
+            else -> EnvironmentSource.StaticImport(cachedContent = staticArea.text.trim())
+        }
+        // Preserve all other environments; update only the active (primary) source env
+        val envs = col.environments.toMutableList()
+        val activeEnvIdx = envs.indexOfFirst { it.id == col.activeEnvironmentId }
+            .takeIf { it >= 0 } ?: 0
+        if (envs.isEmpty()) {
+            envs.add(CollectionEnvironment(id = UUID.randomUUID().toString(), name = "default", source = source))
+        } else {
+            envs[activeEnvIdx] = envs[activeEnvIdx].copy(source = source)
+        }
+        if (listModel.size > selectedIdx && listModel.getElementAt(selectedIdx) != name) {
+            listModel.setElementAt(name, selectedIdx)
+            modified = true
+        }
+        collections[selectedIdx] = col.copy(name = name, environments = envs)
     }
 
     private fun clearDetail() {
         nameField.text = ""; hostField.text = "http://localhost"; portSpinner.value = 5000
         pathField.text = ""; filePathField.text = ""; staticArea.text = ""
         radioServer.isSelected = true; sourceCardLayout.show(sourceCards, "server")
-    }
-
-    private fun saveCurrentToEnv() {
-        val env = envs.getOrNull(selectedIdx) ?: return
-        val name = nameField.text.trim().ifEmpty { env.name }
-        val source: EnvironmentSource = when {
-            radioServer.isSelected -> EnvironmentSource.ServerUrl(
-                host = hostField.text.trim().ifEmpty { "http://localhost" },
-                port = (portSpinner.value as Int),
-                openApiPath = pathField.text.trim().ifEmpty { null }
-            )
-            radioFile.isSelected -> EnvironmentSource.FilePath(path = filePathField.text.trim())
-            else -> EnvironmentSource.StaticImport(cachedContent = staticArea.text.trim())
-        }
-        val updated = env.copy(name = name, source = source)
-        envs[selectedIdx] = updated
-        if (listModel.getElementAt(selectedIdx) != name) listModel.setElementAt(name, selectedIdx)
-    }
-
-    private fun sectionLabel(text: String) = JBLabel(text).apply {
-        foreground = JBColor.GRAY; font = font.deriveFont(Font.PLAIN, 11f)
-        border = JBUI.Borders.emptyBottom(2)
     }
 }

@@ -71,11 +71,6 @@
         instance="com.sonarwhale.settings.SonarwhaleSourcesConfigurable"
         displayName="Sources"
         nonDefaultProject="false"/>
-    <projectConfigurable
-        parentId="com.sonarwhale.settings.SonarwhaleConfigurable"
-        instance="com.sonarwhale.settings.SonarwhaleEnvironmentsConfigurable"
-        displayName="Environments"
-        nonDefaultProject="false"/>
 
   </extensions>
 

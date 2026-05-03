@@ -75,9 +75,7 @@ class DetailPanel(private val project: Project) : JPanel(BorderLayout()), DataPr
     private val headerHolder = JPanel(BorderLayout()).also { it.isVisible = false }
 
     init {
-        val generalSettings = SonarwhaleStateService.getInstance(project).getGeneralSettings()
-        responsePanel.autoFormatResponse = generalSettings.autoFormatResponse
-        requestPanel.setDefaultContentType(generalSettings.defaultContentType)
+        applyGeneralSettings()
 
         requestPanel.onResponseReceived = { status, body, duration, contentType ->
             responsePanel.showResponse(status, body, duration, contentType)

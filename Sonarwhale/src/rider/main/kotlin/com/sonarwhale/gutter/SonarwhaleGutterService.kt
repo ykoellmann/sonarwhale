@@ -35,6 +35,8 @@ class SonarwhaleGutterService(private val project: Project) : Disposable {
     private val SONARWHALE_MARKER = Key.create<Boolean>("sonarwhale.gutter")
 
     @Volatile private var currentEndpoints: List<ApiEndpoint> = emptyList()
+    @Volatile private var gutterIconsEnabled: Boolean =
+        SonarwhaleStateService.getInstance(project).getGeneralSettings().gutterIconsEnabled
 
     // ── Language scanners ─────────────────────────────────────────────────────
 
@@ -65,7 +67,10 @@ class SonarwhaleGutterService(private val project: Project) : Disposable {
 
     // ── Public API ────────────────────────────────────────────────────────────
 
-    fun applySettings() = refreshAllOpenEditors()
+    fun applySettings() {
+        gutterIconsEnabled = SonarwhaleStateService.getInstance(project).getGeneralSettings().gutterIconsEnabled
+        refreshAllOpenEditors()
+    }
 
     fun refreshAllOpenEditors() {
         ApplicationManager.getApplication().invokeLater {
@@ -101,7 +106,7 @@ class SonarwhaleGutterService(private val project: Project) : Disposable {
             .forEach { markup.removeHighlighter(it) }
 
         if (currentEndpoints.isEmpty()) return
-        if (!SonarwhaleStateService.getInstance(project).getGeneralSettings().gutterIconsEnabled) return
+        if (!gutterIconsEnabled) return
 
         val lines = (0 until document.lineCount).map { i ->
             val start = document.getLineStartOffset(i)
