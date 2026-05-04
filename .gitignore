@@ -1,5 +1,6 @@
 # Build artifacts
 /.intellijPlatform/
+.intellijPlatform/
 [Bb]in/
 [Oo]bj/
 build
@@ -18,6 +19,10 @@ output
 /.idea/*.xml
 /.idea/.idea.*/*.iml
 /.idea/.idea.*/.idea/*.xml
+.idea/*.iml
+.idea/*.xml
+.idea/.idea.*/*.iml
+.idea/.idea.*/.idea/*.xml
 .vs
 _ReSharper*
 _dotTrace*
