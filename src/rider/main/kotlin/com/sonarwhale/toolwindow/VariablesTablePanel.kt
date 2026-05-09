@@ -215,6 +215,24 @@ class VariablesTablePanel(private val project: Project) : JPanel(BorderLayout())
         private val textField = JTextField()
         private val passwordField = JPasswordField()
         private var editingSecret = false
+        private var revealed = false
+
+        private val toggleBtn = JButton(AllIcons.General.Show).apply {
+            isBorderPainted = false
+            isContentAreaFilled = false
+            preferredSize = java.awt.Dimension(22, 22)
+            toolTipText = "Show / hide value"
+            addActionListener {
+                revealed = !revealed
+                passwordField.echoChar = if (revealed) ' ' else '•'
+                icon = if (revealed) AllIcons.General.HideToolWindow else AllIcons.General.Show
+            }
+        }
+
+        private val wrapper = JPanel(BorderLayout()).apply {
+            add(passwordField, BorderLayout.CENTER)
+            add(toggleBtn, BorderLayout.EAST)
+        }
 
         override fun getCellEditorValue(): Any =
             if (editingSecret) String(passwordField.password) else textField.text
@@ -224,10 +242,13 @@ class VariablesTablePanel(private val project: Project) : JPanel(BorderLayout())
         ): Component {
             editingSecret = model.isSecret(row)
             return if (editingSecret) {
+                revealed = false
+                passwordField.echoChar = '•'
+                toggleBtn.icon = AllIcons.Actions.Show
                 val stored = if (model.getKey(row).isNotEmpty())
                     SecretStorageService.get(projectHash, model.getKey(row)) ?: "" else ""
                 passwordField.text = stored
-                passwordField
+                wrapper
             } else {
                 textField.text = value as? String ?: ""
                 textField
