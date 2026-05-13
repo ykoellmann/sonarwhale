@@ -12,9 +12,11 @@ import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.ToolWindowManager
+import com.intellij.ui.JBColor
 import com.intellij.ui.OnePixelSplitter
 import com.intellij.ui.SearchTextField
 import com.intellij.ui.components.JBScrollPane
+import com.intellij.util.ui.JBUI
 import com.sonarwhale.model.ApiEndpoint
 import com.sonarwhale.SonarwhaleStateService
 import com.sonarwhale.service.RouteIndexService
@@ -52,6 +54,10 @@ class SonarwhalePanel(private val project: Project) : JPanel(BorderLayout()) {
         }
 
         val topBar = JPanel(BorderLayout(4, 0))
+        topBar.border = JBUI.Borders.compound(
+            JBUI.Borders.customLineBottom(JBColor.border()),
+            JBUI.Borders.empty(6, 4)
+        )
         topBar.add(toolbar.component, BorderLayout.WEST)
         topBar.add(searchField, BorderLayout.CENTER)
         topBar.add(settingsBtn, BorderLayout.EAST)

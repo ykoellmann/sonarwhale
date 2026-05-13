@@ -16,9 +16,11 @@ import com.sonarwhale.script.TestResult
 import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.Dimension
+import java.awt.FlowLayout
 import java.awt.Font
 import javax.swing.Box
 import javax.swing.BoxLayout
+import javax.swing.JLayeredPane
 import javax.swing.JButton
 import javax.swing.JPanel
 import javax.swing.JSeparator
@@ -27,7 +29,7 @@ import javax.swing.SwingWorker
 
 class ResponsePanel(private val project: Project) : JPanel(BorderLayout()) {
 
-    private val statusLabel = JBLabel("—").apply {
+    private val statusLabel = JBLabel("Response").apply {
         font = font.deriveFont(Font.BOLD, 12f)
         foreground = JBColor.GRAY
     }
@@ -43,7 +45,13 @@ class ResponsePanel(private val project: Project) : JPanel(BorderLayout()) {
     }
     private val openButton = JButton("Open in Editor").apply {
         font = font.deriveFont(10f)
-        isVisible = false
+    }
+    private val clearConsoleBtn = JButton("Clear").apply {
+        font = font.deriveFont(11f)
+        toolTipText = "Clear console output"
+    }
+    private val tabActionsBar = JPanel(FlowLayout(FlowLayout.RIGHT, 4, 0)).apply {
+        isOpaque = false
     }
 
     private var currentContentType = ""
@@ -67,7 +75,6 @@ class ResponsePanel(private val project: Project) : JPanel(BorderLayout()) {
         statusLabel.alignmentY = 0.5f
         timeLabel.alignmentY = 0.5f
         sizeLabel.alignmentY = 0.5f
-        openButton.alignmentY = 0.5f
 
         val contentRow = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.X_AXIS)
@@ -77,8 +84,6 @@ class ResponsePanel(private val project: Project) : JPanel(BorderLayout()) {
         contentRow.add(statusLabel)
         contentRow.add(timeLabel)
         contentRow.add(sizeLabel)
-        contentRow.add(Box.createHorizontalGlue())
-        contentRow.add(openButton)
 
         val headerBar = object : JPanel() {
             override fun getPreferredSize() = Dimension(super.getPreferredSize().width, JBUI.scale(42))
@@ -101,9 +106,15 @@ class ResponsePanel(private val project: Project) : JPanel(BorderLayout()) {
         tabs.addTab("Body", bodyScroll)
         tabs.addTab("Tests", testsScroll)
         tabs.addTab("Console", consolePanel)
-        add(tabs, BorderLayout.CENTER)
+        add(buildTabsWithActions(), BorderLayout.CENTER)
 
         openButton.addActionListener { openInEditor() }
+        clearConsoleBtn.addActionListener {
+            consolePanel.showEntries(emptyList())
+            tabs.setTitleAt(tabs.indexOfComponent(consolePanel), "Console")
+            updateTabActions()
+        }
+        tabs.onTabChanged = { _, _ -> updateTabActions() }
     }
 
     fun showResponse(statusCode: Int, body: String, durationMs: Long, contentType: String = "") {
@@ -115,7 +126,7 @@ class ResponsePanel(private val project: Project) : JPanel(BorderLayout()) {
             sizeLabel.text = ""
             bodyArea.text = body
             bodyArea.caretPosition = 0
-            openButton.isVisible = false
+            updateTabActions()
             return
         }
 
@@ -125,7 +136,7 @@ class ResponsePanel(private val project: Project) : JPanel(BorderLayout()) {
         timeLabel.text = "${durationMs} ms"
         sizeLabel.text = formatByteSize(body.toByteArray().size)
         bodyArea.text = "…"
-        openButton.isVisible = false
+        updateTabActions()
 
         object : SwingWorker<String, Unit>() {
             override fun doInBackground(): String = formatBody(body, contentType)
@@ -136,19 +147,19 @@ class ResponsePanel(private val project: Project) : JPanel(BorderLayout()) {
                 if (text.isNotEmpty()) {
                     val (_, ext) = ContentTypeUtils.langAndExt(currentContentType)
                     openButton.toolTipText = "Open in editor as .$ext"
-                    openButton.isVisible = true
                 }
+                updateTabActions()
             }
         }.execute()
     }
 
     fun clear() {
-        statusLabel.text = "—"
+        statusLabel.text = "Response"
         statusLabel.foreground = JBColor.GRAY
         timeLabel.text = ""
         sizeLabel.text = ""
         bodyArea.text = ""
-        openButton.isVisible = false
+        updateTabActions()
         currentContentType = ""
         testsPanel.removeAll()
         tabs.setTitleAt(tabs.indexOfComponent(testsScroll), "Tests")
@@ -207,6 +218,31 @@ class ResponsePanel(private val project: Project) : JPanel(BorderLayout()) {
         if (entries.isNotEmpty()) {
             tabs.selectedIndex = consoleIdx
         }
+    }
+
+    private fun buildTabsWithActions(): JLayeredPane {
+        tabActionsBar.add(openButton)
+        tabActionsBar.add(clearConsoleBtn)
+        updateTabActions()
+        return object : JLayeredPane() {
+            override fun doLayout() {
+                tabs.setBounds(0, 0, width, height)
+                val bPref = tabActionsBar.preferredSize
+                tabActionsBar.setBounds(width - bPref.width - 4, 0, bPref.width, bPref.height)
+            }
+            override fun getPreferredSize(): Dimension = tabs.preferredSize
+        }.also { lp ->
+            lp.add(tabs, JLayeredPane.DEFAULT_LAYER, -1)
+            lp.add(tabActionsBar, JLayeredPane.PALETTE_LAYER, -1)
+        }
+    }
+
+    private fun updateTabActions() {
+        val title = if (tabs.selectedIndex >= 0) tabs.getTitleAt(tabs.selectedIndex) else ""
+        openButton.isVisible = title.startsWith("Body") && bodyArea.text.isNotEmpty()
+        clearConsoleBtn.isVisible = title.startsWith("Console")
+        tabActionsBar.revalidate()
+        tabActionsBar.repaint()
     }
 
     private fun openInEditor() {

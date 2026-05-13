@@ -18,11 +18,6 @@ class CollectionDetailPanel(private val project: Project) : JPanel(BorderLayout(
     private val collectionService = CollectionService.getInstance(project)
     private var collection: ApiCollection? = null
 
-    private val nameLabel = JBLabel("").apply {
-        font = font.deriveFont(Font.BOLD, 13f)
-        border = JBUI.Borders.empty(8, 12, 4, 12)
-    }
-
     private val tabs = CollapsibleTabPane()
     private val envsPanel = EnvironmentsListPanel()
 
@@ -32,7 +27,6 @@ class CollectionDetailPanel(private val project: Project) : JPanel(BorderLayout(
     private val scriptsWrapper  = JPanel(BorderLayout())
 
     init {
-        add(nameLabel, BorderLayout.NORTH)
         tabs.addTab("Environments", JBScrollPane(envsPanel))
         tabs.addTab("Variables",    varsWrapper)
         tabs.addTab("Auth",         authWrapper)
@@ -42,7 +36,6 @@ class CollectionDetailPanel(private val project: Project) : JPanel(BorderLayout(
 
     fun showCollection(col: ApiCollection) {
         collection = col
-        nameLabel.text = col.name
 
         envsPanel.setCollection(col,
             onAddEnv = { env ->

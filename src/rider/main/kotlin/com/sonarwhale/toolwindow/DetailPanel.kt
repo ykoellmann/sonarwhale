@@ -18,11 +18,14 @@ import com.sonarwhale.service.RouteIndexService
 import java.awt.BorderLayout
 import java.awt.CardLayout
 import java.awt.Color
+import java.awt.Dimension
 import java.awt.Font
 import java.awt.GridBagConstraints
 import java.awt.GridBagLayout
 import java.awt.Insets
 import java.awt.event.KeyEvent
+import javax.swing.Box
+import javax.swing.BoxLayout
 import javax.swing.JButton
 import javax.swing.JComponent
 import javax.swing.JPanel
@@ -136,27 +139,43 @@ class DetailPanel(private val project: Project) : JPanel(BorderLayout()), DataPr
     }
 
     fun showController(node: ControllerNode) {
-        headerHolder.isVisible = false
+        showSimpleHeader(node.name)
         controllerDetailPanel.showController(node.name)
         cardLayout.show(cardPanel, "controller")
         revalidate(); repaint()
     }
 
     fun showGlobal() {
-        headerHolder.isVisible = false
+        showSimpleHeader("Global")
         globalDetailPanel.refresh()
         cardLayout.show(cardPanel, "global")
         revalidate(); repaint()
     }
 
     fun showCollection(collection: com.sonarwhale.model.ApiCollection) {
-        headerHolder.isVisible = false
+        showSimpleHeader(collection.name)
         collectionDetailPanel.showCollection(collection)
         cardLayout.show(cardPanel, "collection")
         revalidate(); repaint()
     }
 
     // ── Header ────────────────────────────────────────────────────────────────
+
+    private fun showSimpleHeader(title: String) {
+        headerHolder.removeAll()
+        val panel = JPanel(BorderLayout())
+        panel.border = JBUI.Borders.compound(
+            JBUI.Borders.customLineBottom(JBColor.border()),
+            JBUI.Borders.empty(6, 12)
+        )
+        val row = JPanel().apply { layout = BoxLayout(this, BoxLayout.X_AXIS); isOpaque = false }
+        row.add(JBLabel(title).apply { font = font.deriveFont(Font.BOLD, 13f); alignmentY = 0.5f })
+        // Rigid area forces the same row height as the icon buttons in buildHeader (~26px)
+        row.add(Box.createRigidArea(Dimension(0, JBUI.scale(34))))
+        panel.add(row)
+        headerHolder.add(panel)
+        headerHolder.isVisible = true
+    }
 
     private fun showHeader(endpoint: ApiEndpoint, request: SavedRequest?) {
         headerHolder.removeAll()
