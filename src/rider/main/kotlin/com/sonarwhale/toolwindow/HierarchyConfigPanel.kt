@@ -32,10 +32,10 @@ class HierarchyConfigPanel(
     private val project: Project,
     private var config: HierarchyConfig,
     private val onSave: (HierarchyConfig) -> Unit,
-    private val scriptContext: ScriptContext? = null
+    private val scriptContext: ScriptContext? = null,
+    showOwnTabs: Boolean = true
 ) : JPanel(BorderLayout()) {
 
-    private val tabs = CollapsibleTabPane()
     private val variablesPanel = VariablesTablePanel(project)
     private val preCheckboxes  = mutableMapOf<com.sonarwhale.script.ScriptLevel, javax.swing.JCheckBox>()
     private val postCheckboxes = mutableMapOf<com.sonarwhale.script.ScriptLevel, javax.swing.JCheckBox>()
@@ -47,6 +47,11 @@ class HierarchyConfigPanel(
         }
     )
 
+    val variablesTab: JComponent = JBScrollPane(variablesPanel)
+    val authTab: JComponent get() = authPanel
+    lateinit var scriptsTab: JComponent
+        private set
+
     init {
         variablesPanel.setVariables(config.variables)
         variablesPanel.onChange = { updated ->
@@ -54,10 +59,15 @@ class HierarchyConfigPanel(
             onSave(config)
         }
 
-        tabs.addTab("Variables", JBScrollPane(variablesPanel))
-        tabs.addTab("Auth", authPanel)
-        tabs.addTab("Scripts", JBScrollPane(buildScriptsTab()))
-        add(tabs, BorderLayout.CENTER)
+        scriptsTab = JBScrollPane(buildScriptsTab())
+
+        if (showOwnTabs) {
+            val tabs = CollapsibleTabPane()
+            tabs.addTab("Variables", variablesTab)
+            tabs.addTab("Auth", authTab)
+            tabs.addTab("Scripts", scriptsTab)
+            add(tabs, BorderLayout.CENTER)
+        }
     }
 
     fun setConfig(newConfig: HierarchyConfig) {

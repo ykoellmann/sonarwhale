@@ -5,7 +5,9 @@ import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.ActionPlaces
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.actionSystem.CustomShortcutSet
 import com.intellij.openapi.actionSystem.DefaultActionGroup
+import com.intellij.openapi.actionSystem.KeyboardShortcut
 import com.intellij.openapi.actionSystem.Separator
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.progress.ProgressManager
@@ -14,9 +16,11 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.ui.ColoredTreeCellRenderer
+import com.intellij.ui.tree.ui.Control
 import com.intellij.ui.JBColor
 import com.intellij.ui.SimpleTextAttributes
 import com.intellij.ui.treeStructure.Tree
+import com.intellij.util.ui.JBUI
 import com.sonarwhale.SonarwhaleStateService
 import com.sonarwhale.gutter.SourceLocationService
 import com.sonarwhale.model.ApiCollection
@@ -29,12 +33,14 @@ import com.sonarwhale.script.ScriptPhase
 import com.sonarwhale.script.SonarwhaleScriptService
 import com.sonarwhale.service.CollectionService
 import java.awt.Color
+import java.awt.event.InputEvent
 import java.awt.event.KeyAdapter
 import java.awt.event.KeyEvent
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import java.util.UUID
 import javax.swing.JTree
+import javax.swing.KeyStroke
 import javax.swing.SwingUtilities
 import javax.swing.tree.DefaultMutableTreeNode
 import javax.swing.tree.DefaultTreeModel
@@ -81,17 +87,32 @@ class EndpointTree(private val project: Project) : Tree() {
     // losing the endpoint data.
     private var currentEndpoints: List<ApiEndpoint> = emptyList()
 
+    // When true, the selection listener fires no callbacks. Used by refreshRequests
+    // to silently restore the selection after nodeStructureChanged clears it,
+    // preventing autoSave → onRequestSaved → refreshRequests feedback loops.
+    private var suppressSelectionCallback = false
+
     init {
         selectionModel.selectionMode = TreeSelectionModel.SINGLE_TREE_SELECTION
-        isRootVisible   = false
+        isRootVisible    = false
         showsRootHandles = true
-        cellRenderer    = EndpointTreeCellRenderer(project)
+        rowHeight        = JBUI.scale(20)
+        cellRenderer     = EndpointTreeCellRenderer(project)
+        // Use the COMPACT painter so DefaultTreeUI's getRowX uses minimal indent.
+        // This is the correct per-tree API — UIManager and BasicTreeUI casts are both no-ops
+        // because DefaultTreeUI delegates row-x entirely to a Control.Painter looked up from
+        // this client property.
+        putClientProperty(Control.Painter.KEY, Control.Painter.COMPACT)
 
         // Full-row selection: clicking anywhere on a row (not just the text) selects it
         putClientProperty("JTree.fullRowSelection", true)
 
-        addTreeSelectionListener { e ->
-            val node = e.path?.lastPathComponent as? DefaultMutableTreeNode ?: return@addTreeSelectionListener
+        addTreeSelectionListener {
+            if (suppressSelectionCallback) return@addTreeSelectionListener
+            // Use selectionPath (current state) instead of e.path (the changed path).
+            // When nodeStructureChanged clears the selection, e.path is the OLD (removed)
+            // node, which would wrongly re-trigger the callback for the deleted item.
+            val node = selectionPath?.lastPathComponent as? DefaultMutableTreeNode ?: return@addTreeSelectionListener
             when (val obj = node.userObject) {
                 is EndpointNode    -> onEndpointSelected?.invoke(obj.endpoint)
                 is ControllerNode  -> onControllerSelected?.invoke(obj)
@@ -110,17 +131,27 @@ class EndpointTree(private val project: Project) : Tree() {
             }
         })
 
-        // F4 → Jump to Source (standard IntelliJ shortcut)
+        // F4 → Jump to Source | Shift+F6 → Rename | Ctrl+D → Duplicate
         addKeyListener(object : KeyAdapter() {
             override fun keyPressed(e: KeyEvent) {
-                if (e.keyCode == KeyEvent.VK_F4) {
-                    val node = lastSelectedPathComponent as? DefaultMutableTreeNode ?: return
-                    val epId = when (val obj = node.userObject) {
-                        is EndpointNode -> obj.endpoint.id
-                        is RequestNode  -> obj.endpoint.id
-                        else            -> return
+                val node = lastSelectedPathComponent as? DefaultMutableTreeNode ?: return
+                when {
+                    e.keyCode == KeyEvent.VK_F4 -> {
+                        val epId = when (val obj = node.userObject) {
+                            is EndpointNode -> obj.endpoint.id
+                            is RequestNode  -> obj.endpoint.id
+                            else            -> return
+                        }
+                        SourceLocationService.getInstance(project).navigate(epId)
                     }
-                    SourceLocationService.getInstance(project).navigate(epId)
+                    e.keyCode == KeyEvent.VK_F6 && e.isShiftDown -> {
+                        val obj = node.userObject as? RequestNode ?: return
+                        performRename(obj.endpoint, obj.request)
+                    }
+                    e.keyCode == KeyEvent.VK_D && e.isControlDown -> {
+                        val obj = node.userObject as? RequestNode ?: return
+                        performDuplicate(obj.endpoint, obj.request)
+                    }
                 }
             }
         })
@@ -190,6 +221,24 @@ class EndpointTree(private val project: Project) : Tree() {
         })
     }
 
+    private fun performRename(endpoint: ApiEndpoint, request: SavedRequest) {
+        val newName = Messages.showInputDialog(
+            project, "Request name:", "Rename Request", null, request.name, null
+        )?.trim()?.takeIf { it.isNotBlank() } ?: return
+        stateService.upsertRequest(endpoint.id, request.copy(name = newName))
+        refreshRequests(endpoint.id)
+        SwingUtilities.invokeLater { selectRequest(endpoint.id, request.id) }
+    }
+
+    fun performDuplicate(endpoint: ApiEndpoint, request: SavedRequest) {
+        val existingNames = stateService.getRequests(endpoint.id).map { it.name }.toSet()
+        val newName = nextDuplicateName(request.name, existingNames)
+        val newReq = request.copy(id = UUID.randomUUID().toString(), name = newName, isDefault = false)
+        stateService.upsertRequest(endpoint.id, newReq)
+        refreshRequests(endpoint.id)
+        SwingUtilities.invokeLater { selectRequest(endpoint.id, newReq.id) }
+    }
+
     private fun addCopyPathAction(group: DefaultActionGroup, endpoint: ApiEndpoint) {
         group.add(object : AnAction("Copy Path", "Copy endpoint path to clipboard", AllIcons.Actions.Copy) {
             override fun actionPerformed(e: AnActionEvent) {
@@ -253,11 +302,12 @@ class EndpointTree(private val project: Project) : Tree() {
     private fun buildEndpointMenu(group: DefaultActionGroup, endpoint: ApiEndpoint) {
         val locService = SourceLocationService.getInstance(project)
         if (locService.canNavigate(endpoint.id)) {
-            group.add(object : AnAction("Jump to Source", "Open the C# controller method in the editor", AllIcons.Actions.EditSource) {
-                override fun actionPerformed(e: AnActionEvent) {
-                    locService.navigate(endpoint.id)
-                }
-            })
+            val jumpAction = object : AnAction("Jump to Source", "Open the controller method in the editor", AllIcons.Actions.EditSource) {
+                override fun actionPerformed(e: AnActionEvent) { locService.navigate(endpoint.id) }
+            }
+            jumpAction.registerCustomShortcutSet(
+                CustomShortcutSet(KeyboardShortcut(KeyStroke.getKeyStroke(KeyEvent.VK_F4, 0), null)), null)
+            group.add(jumpAction)
             group.add(Separator.getInstance())
         }
 
@@ -266,7 +316,8 @@ class EndpointTree(private val project: Project) : Tree() {
                 val name = Messages.showInputDialog(
                     project, "Request name:", "New Request", null
                 )?.trim()?.takeIf { it.isNotBlank() } ?: return
-                val req = SavedRequest(id = UUID.randomUUID().toString(), name = name, isDefault = false)
+                val isFirst = stateService.getRequests(endpoint.id).isEmpty()
+                val req = SavedRequest(id = UUID.randomUUID().toString(), name = name, isDefault = isFirst)
                 stateService.upsertRequest(endpoint.id, req)
                 refreshRequests(endpoint.id)
                 // Select the new request node
@@ -288,15 +339,30 @@ class EndpointTree(private val project: Project) : Tree() {
     }
 
     private fun buildRequestMenu(group: DefaultActionGroup, endpoint: ApiEndpoint, request: SavedRequest) {
-        group.add(object : AnAction("Rename…", "Rename this request", AllIcons.Actions.Edit) {
-            override fun actionPerformed(e: AnActionEvent) {
-                val newName = Messages.showInputDialog(
-                    project, "Request name:", "Rename Request", null, request.name, null
-                )?.trim()?.takeIf { it.isNotBlank() } ?: return
-                stateService.upsertRequest(endpoint.id, request.copy(name = newName))
-                refreshRequests(endpoint.id)
+        val locService = SourceLocationService.getInstance(project)
+        if (locService.canNavigate(endpoint.id)) {
+            val jumpAction = object : AnAction("Jump to Source", "Open the controller method in the editor", AllIcons.Actions.EditSource) {
+                override fun actionPerformed(e: AnActionEvent) { locService.navigate(endpoint.id) }
             }
-        })
+            jumpAction.registerCustomShortcutSet(
+                CustomShortcutSet(KeyboardShortcut(KeyStroke.getKeyStroke(KeyEvent.VK_F4, 0), null)), null)
+            group.add(jumpAction)
+            group.add(Separator.getInstance())
+        }
+
+        val renameAction = object : AnAction("Rename…", "Rename this request", AllIcons.Actions.Edit) {
+            override fun actionPerformed(e: AnActionEvent) { performRename(endpoint, request) }
+        }
+        renameAction.registerCustomShortcutSet(
+            CustomShortcutSet(KeyboardShortcut(KeyStroke.getKeyStroke(KeyEvent.VK_F6, InputEvent.SHIFT_DOWN_MASK), null)), null)
+        group.add(renameAction)
+
+        val dupAction = object : AnAction("Duplicate", "Duplicate this request", AllIcons.Actions.Copy) {
+            override fun actionPerformed(e: AnActionEvent) { performDuplicate(endpoint, request) }
+        }
+        dupAction.registerCustomShortcutSet(
+            CustomShortcutSet(KeyboardShortcut(KeyStroke.getKeyStroke(KeyEvent.VK_D, InputEvent.CTRL_DOWN_MASK), null)), null)
+        group.add(dupAction)
 
         if (!request.isDefault) {
             group.add(object : AnAction("Set as Default", "Run this request via gutter icon", AllIcons.RunConfigurations.TestState.Run) {
@@ -317,12 +383,11 @@ class EndpointTree(private val project: Project) : Tree() {
                 if (answer != Messages.YES) return
                 stateService.removeRequest(endpoint.id, request.id)
                 refreshRequests(endpoint.id)
-                // Fall back to selecting the parent endpoint node
                 val epNode = findEndpointNode(endpoint.id)
                 if (epNode != null) {
                     val path = javax.swing.tree.TreePath(epNode.path)
                     selectionPath = path
-                    onEndpointSelected?.invoke(endpoint)
+                    scrollPathToVisible(path)
                 }
             }
         })
@@ -346,6 +411,7 @@ class EndpointTree(private val project: Project) : Tree() {
 
     /** Rebuilds only the request sub-nodes for one endpoint (e.g. after save). */
     fun refreshRequests(endpointId: String) {
+        val prevSelected = selectedPathObject()
         val root = model?.root as? DefaultMutableTreeNode ?: return
         val treeModel = model as? DefaultTreeModel ?: return
 
@@ -360,6 +426,19 @@ class EndpointTree(private val project: Project) : Tree() {
                 }
                 treeModel.nodeStructureChanged(epNode)
                 expandPath(javax.swing.tree.TreePath(epNode.path))
+
+                // nodeStructureChanged clears the selection. Silently restore it so that
+                // autoSave → onRequestSaved → refreshRequests doesn't wipe the highlight.
+                // Callers that want to SELECT A DIFFERENT node do so afterwards explicitly.
+                val prevReq = prevSelected as? RequestNode
+                if (prevReq != null && prevReq.endpoint.id == endpointId) {
+                    val restored = findRequestNode(endpointId, prevReq.request.id)
+                    if (restored != null) {
+                        suppressSelectionCallback = true
+                        selectionPath = javax.swing.tree.TreePath(restored.path)
+                        suppressSelectionCallback = false
+                    }
+                }
             }
     }
 
@@ -457,6 +536,15 @@ class EndpointTree(private val project: Project) : Tree() {
     }
 }
 
+// ── Naming helpers ────────────────────────────────────────────────────────────
+
+internal fun nextDuplicateName(name: String, existingNames: Set<String>): String {
+    val base = name.replace(Regex("_\\d+$"), "")
+    var i = 1
+    while ("${base}_$i" in existingNames) i++
+    return "${base}_$i"
+}
+
 // ── Shared UI helpers ─────────────────────────────────────────────────────────
 
 internal fun methodColor(method: HttpMethod): Color = when (method) {
@@ -472,6 +560,8 @@ internal fun methodColor(method: HttpMethod): Color = when (method) {
 // ── Cell renderer ─────────────────────────────────────────────────────────────
 
 private class EndpointTreeCellRenderer(private val project: Project) : ColoredTreeCellRenderer() {
+
+    private val countAttrs = SimpleTextAttributes(SimpleTextAttributes.STYLE_SMALLER, JBColor(Color(0x88, 0x88, 0x88), Color(0x77, 0x77, 0x77)))
 
     override fun customizeCellRenderer(
         tree: JTree, value: Any?, selected: Boolean,
@@ -497,6 +587,7 @@ private class EndpointTreeCellRenderer(private val project: Project) : ColoredTr
                     val short = if (s.length > 40) s.take(40) + "…" else s
                     append("  $short", SimpleTextAttributes(SimpleTextAttributes.STYLE_ITALIC, JBColor.GRAY))
                 }
+                if (node.childCount > 0) append("  ${node.childCount}", countAttrs)
                 icon = null
             }
             is RequestNode -> {
@@ -509,7 +600,7 @@ private class EndpointTreeCellRenderer(private val project: Project) : ColoredTr
                 if (isDefault) {
                     append("  default", SimpleTextAttributes(SimpleTextAttributes.STYLE_SMALLER, JBColor.GRAY))
                 }
-                icon = AllIcons.Nodes.Tag
+                icon = null
             }
             is GlobalNode -> {
                 append("Global", SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES)
@@ -522,11 +613,15 @@ private class EndpointTreeCellRenderer(private val project: Project) : ColoredTr
                 append(col.name, SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES)
                 append("  $activeEnvName",
                     SimpleTextAttributes(SimpleTextAttributes.STYLE_PLAIN, JBColor.GRAY))
+                val total = (0 until node.childCount).sumOf { i ->
+                    ((node.getChildAt(i) as? DefaultMutableTreeNode)?.userObject as? ControllerNode)?.endpoints?.size ?: 0
+                }
+                if (total > 0) append("  $total", countAttrs)
                 icon = AllIcons.Nodes.Folder
             }
             is ControllerNode -> {
                 append(obj.name, SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES)
-                append("  ${obj.endpoints.size}", SimpleTextAttributes(SimpleTextAttributes.STYLE_PLAIN, JBColor.GRAY))
+                if (obj.endpoints.isNotEmpty()) append("  ${obj.endpoints.size}", countAttrs)
                 icon = null
             }
             is NoResults -> append("No endpoints found", SimpleTextAttributes(SimpleTextAttributes.STYLE_ITALIC, JBColor.GRAY))

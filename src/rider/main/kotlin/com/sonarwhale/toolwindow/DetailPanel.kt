@@ -52,12 +52,10 @@ class DetailPanel(private val project: Project) : JPanel(BorderLayout()), DataPr
         foreground = JBColor.GRAY
     }
 
-    private val splitter = OnePixelSplitter(true, 0.58f).also {
+    private val splitter = OnePixelSplitter(false, 0.5f).also {
         it.firstComponent  = requestPanel
         it.secondComponent = responsePanel
     }
-
-    private var expandedProportion = 0.58f
 
     private val cardLayout             = CardLayout()
     private val globalDetailPanel      = GlobalDetailPanel(project)
@@ -83,14 +81,6 @@ class DetailPanel(private val project: Project) : JPanel(BorderLayout()), DataPr
             responsePanel.showTestResults(results)
         }
         requestPanel.onConsoleReceived = { entries -> responsePanel.showConsole(entries) }
-        responsePanel.onToggle = {
-            if (!responsePanel.isContentVisible) {
-                expandedProportion = splitter.proportion
-                splitter.proportion = 1.0f
-            } else {
-                splitter.proportion = expandedProportion
-            }
-        }
         add(headerHolder, BorderLayout.NORTH)
         add(cardPanel,    BorderLayout.CENTER)
         cardLayout.show(cardPanel, "empty")
@@ -126,7 +116,7 @@ class DetailPanel(private val project: Project) : JPanel(BorderLayout()), DataPr
             requestPanel.setPreviewMode(true)
             splitter.secondComponent = null
             requestPanel.showEndpoint(endpoint)
-            showContent(endpoint)
+            showContent(endpoint, null)
         }
     }
 
@@ -135,11 +125,11 @@ class DetailPanel(private val project: Project) : JPanel(BorderLayout()), DataPr
         requestPanel.setPreviewMode(false)
         splitter.secondComponent = responsePanel
         requestPanel.showRequest(endpoint, request)
-        showContent(endpoint)
+        showContent(endpoint, request)
     }
 
-    private fun showContent(endpoint: ApiEndpoint) {
-        showHeader(endpoint)
+    private fun showContent(endpoint: ApiEndpoint, request: SavedRequest?) {
+        showHeader(endpoint, request)
         responsePanel.clear()
         cardLayout.show(cardPanel, "content")
         revalidate(); repaint()
@@ -168,13 +158,13 @@ class DetailPanel(private val project: Project) : JPanel(BorderLayout()), DataPr
 
     // ── Header ────────────────────────────────────────────────────────────────
 
-    private fun showHeader(endpoint: ApiEndpoint) {
+    private fun showHeader(endpoint: ApiEndpoint, request: SavedRequest?) {
         headerHolder.removeAll()
-        headerHolder.add(buildHeader(endpoint))
+        headerHolder.add(buildHeader(endpoint, request))
         headerHolder.isVisible = true
     }
 
-    private fun buildHeader(endpoint: ApiEndpoint): JPanel {
+    private fun buildHeader(endpoint: ApiEndpoint, request: SavedRequest?): JPanel {
         val panel = JPanel(GridBagLayout())
         panel.border = JBUI.Borders.compound(
             JBUI.Borders.customLineBottom(JBColor.border()),
@@ -225,8 +215,6 @@ class DetailPanel(private val project: Project) : JPanel(BorderLayout()), DataPr
             }
         }
 
-        // "Jump to source" button — always shown; navigate() handles not-yet-cached locations
-        // via a blocking modal scan, so no need to gate on canNavigate() at build time.
         val navBtn = JButton(AllIcons.Actions.EditSource).apply {
             isBorderPainted    = false
             isContentAreaFilled = false
@@ -239,6 +227,19 @@ class DetailPanel(private val project: Project) : JPanel(BorderLayout()), DataPr
             it.gridx = 8; it.gridy = 0; it.weightx = 0.0
             it.anchor = GridBagConstraints.EAST; it.insets = Insets(0, 4, 0, 0)
         })
+
+        if (request != null) {
+            val dupBtn = JButton(AllIcons.Actions.Copy).apply {
+                isBorderPainted    = false
+                isContentAreaFilled = false
+                toolTipText        = "Duplicate request (Ctrl+D)"
+                addActionListener  { requestPanel.duplicateCurrentRequest() }
+            }
+            panel.add(dupBtn, GridBagConstraints().also {
+                it.gridx = 9; it.gridy = 0; it.weightx = 0.0
+                it.anchor = GridBagConstraints.EAST; it.insets = Insets(0, 2, 0, 0)
+            })
+        }
 
         return panel
     }

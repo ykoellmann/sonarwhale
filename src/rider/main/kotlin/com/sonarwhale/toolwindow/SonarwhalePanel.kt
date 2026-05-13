@@ -61,7 +61,7 @@ class SonarwhalePanel(private val project: Project) : JPanel(BorderLayout()) {
         leftPanel.add(progressBar, BorderLayout.SOUTH)
         leftPanel.add(JBScrollPane(endpointTree), BorderLayout.CENTER)
 
-        val splitter = OnePixelSplitter(false, 0.27f)
+        val splitter = OnePixelSplitter(false, 0.33f)
         splitter.firstComponent = leftPanel
         splitter.secondComponent = detailPanel
         add(splitter, BorderLayout.CENTER)
@@ -94,6 +94,14 @@ class SonarwhalePanel(private val project: Project) : JPanel(BorderLayout()) {
         detailPanel.requestPanel.onRequestSaved = {
             val epId = detailPanel.requestPanel.currentEndpointId
             if (epId != null) endpointTree.refreshRequests(epId)
+        }
+
+        // After duplicating: refresh tree and select + show the new request
+        detailPanel.requestPanel.onRequestDuplicated = { endpoint, req ->
+            endpointTree.refreshRequests(endpoint.id)
+            endpointTree.selectRequest(endpoint.id, req.id)
+            service.setCurrentEndpoint(endpoint.id)
+            detailPanel.showRequest(endpoint, req)
         }
 
         service.addSelectionListener { id ->

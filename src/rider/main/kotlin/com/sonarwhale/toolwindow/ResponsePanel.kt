@@ -2,7 +2,6 @@ package com.sonarwhale.toolwindow
 
 import com.google.gson.GsonBuilder
 import com.google.gson.JsonParser
-import com.intellij.icons.AllIcons
 import com.intellij.ide.scratch.ScratchRootType
 import com.intellij.lang.Language
 import com.intellij.openapi.fileEditor.FileEditorManager
@@ -16,29 +15,31 @@ import com.sonarwhale.script.ConsoleEntry
 import com.sonarwhale.script.TestResult
 import java.awt.BorderLayout
 import java.awt.Color
-import java.awt.Cursor
+import java.awt.Dimension
 import java.awt.Font
-import java.awt.GridBagConstraints
-import java.awt.GridBagLayout
-import java.awt.Insets
-import java.awt.event.MouseAdapter
-import java.awt.event.MouseEvent
+import javax.swing.Box
 import javax.swing.BoxLayout
 import javax.swing.JButton
 import javax.swing.JPanel
+import javax.swing.JSeparator
 import javax.swing.JTextArea
 import javax.swing.SwingWorker
 
 class ResponsePanel(private val project: Project) : JPanel(BorderLayout()) {
 
-    private val statusLabel = JBLabel("Response").apply {
-        font = font.deriveFont(Font.BOLD, 11f)
+    private val statusLabel = JBLabel("—").apply {
+        font = font.deriveFont(Font.BOLD, 12f)
         foreground = JBColor.GRAY
-        border = JBUI.Borders.empty(0, 0, 0, 12)
     }
-    private val durationLabel = JBLabel("").apply {
-        foreground = JBColor.GRAY
+    private val timeLabel = JBLabel("").apply {
         font = font.deriveFont(11f)
+        foreground = JBColor.GRAY
+        border = JBUI.Borders.empty(0, 12, 0, 0)
+    }
+    private val sizeLabel = JBLabel("").apply {
+        font = font.deriveFont(11f)
+        foreground = JBColor.GRAY
+        border = JBUI.Borders.empty(0, 8, 0, 0)
     }
     private val openButton = JButton("Open in Editor").apply {
         font = font.deriveFont(10f)
@@ -46,10 +47,6 @@ class ResponsePanel(private val project: Project) : JPanel(BorderLayout()) {
     }
 
     private var currentContentType = ""
-    private val collapseIcon = JBLabel(AllIcons.General.ArrowDown).apply {
-        toolTipText = "Collapse response panel"
-        border = JBUI.Borders.empty(0, 4, 0, 0)
-    }
     private val bodyArea = JTextArea().apply {
         isEditable = false
         font = Font(Font.MONOSPACED, Font.PLAIN, 12)
@@ -64,64 +61,49 @@ class ResponsePanel(private val project: Project) : JPanel(BorderLayout()) {
     private val testsScroll = JBScrollPane(testsPanel)
     private val consolePanel = ConsolePanel()
 
-    var onToggle: (() -> Unit)? = null
-    var isContentVisible: Boolean = true
-        private set
     var autoFormatResponse: Boolean = true
 
-    private fun toggleCollapse() {
-        isContentVisible = !isContentVisible
-        tabs.isVisible = isContentVisible
-        collapseIcon.icon = if (isContentVisible) AllIcons.General.ArrowDown else AllIcons.General.ArrowUp
-        collapseIcon.toolTipText = if (isContentVisible) "Collapse response panel" else "Expand response panel"
-        minimumSize = if (isContentVisible) null else java.awt.Dimension(0, 36)
-        revalidate(); repaint()
-        onToggle?.invoke()
-    }
-
     init {
-        val header = JPanel(GridBagLayout())
-        header.border = JBUI.Borders.compound(
-            JBUI.Borders.customLineTop(JBColor.border()),
-            JBUI.Borders.empty(5, 8)
-        )
+        statusLabel.alignmentY = 0.5f
+        timeLabel.alignmentY = 0.5f
+        sizeLabel.alignmentY = 0.5f
+        openButton.alignmentY = 0.5f
 
-        val gbc = GridBagConstraints()
-        gbc.gridy = 0; gbc.anchor = GridBagConstraints.WEST; gbc.insets = Insets(0, 0, 0, 0)
+        val contentRow = JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.X_AXIS)
+            isOpaque = false
+            alignmentX = 0.0f
+        }
+        contentRow.add(statusLabel)
+        contentRow.add(timeLabel)
+        contentRow.add(sizeLabel)
+        contentRow.add(Box.createHorizontalGlue())
+        contentRow.add(openButton)
 
-        gbc.gridx = 0; gbc.weightx = 0.0
-        header.add(statusLabel, gbc)
+        val headerBar = object : JPanel() {
+            override fun getPreferredSize() = Dimension(super.getPreferredSize().width, JBUI.scale(42))
+            override fun getMinimumSize()   = Dimension(0, JBUI.scale(42))
+            override fun getMaximumSize()   = Dimension(Int.MAX_VALUE, JBUI.scale(42))
+        }.apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            isOpaque = false
+            border = JBUI.Borders.empty(0, 8)
+        }
+        headerBar.add(Box.createVerticalGlue())
+        headerBar.add(contentRow)
+        headerBar.add(Box.createVerticalGlue())
 
-        gbc.gridx = 1; gbc.weightx = 1.0; gbc.fill = GridBagConstraints.HORIZONTAL
-        val spacer = JPanel().also { it.isOpaque = false }
-        header.add(spacer, gbc)
+        val headerWrapper = JPanel(BorderLayout())
+        headerWrapper.add(headerBar, BorderLayout.CENTER)
+        headerWrapper.add(JSeparator(), BorderLayout.SOUTH)
 
-        gbc.gridx = 2; gbc.weightx = 0.0; gbc.fill = GridBagConstraints.NONE
-        gbc.insets = Insets(0, 0, 0, 8)
-        header.add(durationLabel, gbc)
-
-        gbc.gridx = 3; gbc.insets = Insets(0, 0, 0, 0)
-        header.add(openButton, gbc)
-
-        gbc.gridx = 4; gbc.insets = Insets(0, 4, 0, 0)
-        header.add(collapseIcon, gbc)
-
-        add(header, BorderLayout.NORTH)
+        add(headerWrapper, BorderLayout.NORTH)
         tabs.addTab("Body", bodyScroll)
         tabs.addTab("Tests", testsScroll)
         tabs.addTab("Console", consolePanel)
         add(tabs, BorderLayout.CENTER)
 
         openButton.addActionListener { openInEditor() }
-
-        val handCursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-        val clickHandler = object : MouseAdapter() {
-            override fun mouseClicked(e: MouseEvent) = toggleCollapse()
-        }
-        // Make the entire header area clickable — attach to header and all non-button children.
-        // openButton handles its own click and is intentionally excluded.
-        listOf<java.awt.Component>(header, statusLabel, durationLabel, spacer, collapseIcon)
-            .forEach { it.addMouseListener(clickHandler); it.cursor = handCursor }
     }
 
     fun showResponse(statusCode: Int, body: String, durationMs: Long, contentType: String = "") {
@@ -129,16 +111,19 @@ class ResponsePanel(private val project: Project) : JPanel(BorderLayout()) {
         if (statusCode == 0) {
             statusLabel.text = "Error"
             statusLabel.foreground = JBColor(Color(0xCC, 0x00, 0x00), Color(0xFF, 0x44, 0x44))
-            durationLabel.text = ""
+            timeLabel.text = ""
+            sizeLabel.text = ""
             bodyArea.text = body
             bodyArea.caretPosition = 0
             openButton.isVisible = false
             return
         }
 
-        statusLabel.text = "HTTP $statusCode"
+        val phrase = httpStatusText(statusCode)
+        statusLabel.text = if (phrase.isNotEmpty()) "$statusCode $phrase" else "$statusCode"
         statusLabel.foreground = statusColor(statusCode)
-        durationLabel.text = "${durationMs}ms"
+        timeLabel.text = "${durationMs} ms"
+        sizeLabel.text = formatByteSize(body.toByteArray().size)
         bodyArea.text = "…"
         openButton.isVisible = false
 
@@ -158,9 +143,10 @@ class ResponsePanel(private val project: Project) : JPanel(BorderLayout()) {
     }
 
     fun clear() {
-        statusLabel.text = "Response"
+        statusLabel.text = "—"
         statusLabel.foreground = JBColor.GRAY
-        durationLabel.text = ""
+        timeLabel.text = ""
+        sizeLabel.text = ""
         bodyArea.text = ""
         openButton.isVisible = false
         currentContentType = ""
@@ -272,5 +258,24 @@ class ResponsePanel(private val project: Project) : JPanel(BorderLayout()) {
     companion object {
         private val prettyGson = GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create()
         private val xmlTransformerFactory = javax.xml.transform.TransformerFactory.newInstance()
+
+        private fun httpStatusText(code: Int): String = when (code) {
+            200 -> "OK";          201 -> "Created";            202 -> "Accepted"
+            204 -> "No Content";  206 -> "Partial Content"
+            301 -> "Moved Permanently"; 302 -> "Found";        304 -> "Not Modified"
+            400 -> "Bad Request"; 401 -> "Unauthorized";       403 -> "Forbidden"
+            404 -> "Not Found";   405 -> "Method Not Allowed"; 408 -> "Request Timeout"
+            409 -> "Conflict";    410 -> "Gone";               422 -> "Unprocessable Entity"
+            429 -> "Too Many Requests"
+            500 -> "Internal Server Error"; 502 -> "Bad Gateway"
+            503 -> "Service Unavailable";   504 -> "Gateway Timeout"
+            else -> ""
+        }
+
+        private fun formatByteSize(bytes: Int): String = when {
+            bytes < 1024        -> "$bytes B"
+            bytes < 1024 * 1024 -> "${"%.1f".format(bytes / 1024.0)} KB"
+            else                -> "${"%.1f".format(bytes / (1024.0 * 1024.0))} MB"
+        }
     }
 }

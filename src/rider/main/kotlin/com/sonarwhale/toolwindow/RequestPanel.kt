@@ -120,6 +120,11 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
     var onConsoleReceived: ((List<com.sonarwhale.script.ConsoleEntry>) -> Unit)? = null
     /** One-shot callback fired on the next response (success or error), then cleared. */
     var onNextResponse: ((Int, String, Long, String) -> Unit)? = null
+    /** Called when a request is duplicated — wire to refresh tree and select new node. */
+    var onRequestDuplicated: ((ApiEndpoint, SavedRequest) -> Unit)? = null
+
+    // Guard: true while showRequest/showEndpoint is populating fields to suppress auto-save.
+    private var isLoadingRequest = false
 
     /** Called by DetailPanel when the user edits the name field in the header. */
     fun setRequestName(name: String) { currentRequestName = name }
@@ -148,16 +153,21 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
         add(tabs, BorderLayout.CENTER)
 
         sendButton.addActionListener { sendRequest() }
-        saveButton.addActionListener { if (previewMode) createNewRequest() else saveRequest() }
+        saveButton.addActionListener { createNewRequest() }
         setDefaultButton.addActionListener { setAsDefault() }
-        paramsTable.addChangeListener { updateComputedUrl() }
+        paramsTable.addChangeListener { updateComputedUrl(); autoSave() }
+        headersTable.addChangeListener { autoSave() }
+        bodyPanel.addChangeListener { autoSave() }
     }
 
     private fun buildTopBar(): JPanel {
-        val top = JPanel(BorderLayout(0, 2))
-        top.border = JBUI.Borders.empty(4, 4, 0, 4)
-        top.add(buildUrlBar(), BorderLayout.CENTER)
-        return top
+        val inner = JPanel(BorderLayout(0, 2))
+        inner.border = JBUI.Borders.empty(4, 4, 4, 4)
+        inner.add(buildUrlBar(), BorderLayout.CENTER)
+        val outer = JPanel(BorderLayout())
+        outer.add(inner, BorderLayout.CENTER)
+        outer.add(javax.swing.JSeparator(), BorderLayout.SOUTH)
+        return outer
     }
 
     private fun buildUrlBar(): JPanel {
@@ -248,53 +258,50 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
 
     /** Show a specific named request for an endpoint. */
     fun showRequest(endpoint: ApiEndpoint, request: SavedRequest) {
-        currentEndpoint = endpoint
-        currentRequest = request
+        isLoadingRequest = true
+        try {
+            currentEndpoint = endpoint
+            currentRequest = request
 
-        currentRequestName = request.name
-        updateDefaultButtonState(request.isDefault)
+            currentRequestName = request.name
+            updateDefaultButtonState(request.isDefault)
 
-        val hasParams = endpoint.parameters.any { it.location == ParameterLocation.PATH || it.location == ParameterLocation.QUERY }
-        val hasBody   = endpoint.requestBody != null
+            val hasBody = endpoint.requestBody != null
 
-        // Params
-        paramsTable.setRows(buildParamRows(endpoint, request.paramValues, request.paramEnabled))
+            paramsTable.setRows(buildParamRows(endpoint, request.paramValues, request.paramEnabled))
 
-        // Headers (auth pre-fill removed — handled by Auth tab)
-        val headerRows = deserializeRows(request.headers) ?: endpoint.parameters
-            .filter { it.location == ParameterLocation.HEADER }
-            .map { NameValueRow(true, it.name, "", "header param") }
-        headersTable.setRows(headerRows)
+            val headerRows = deserializeRows(request.headers) ?: endpoint.parameters
+                .filter { it.location == ParameterLocation.HEADER }
+                .map { NameValueRow(true, it.name, "", "header param") }
+            headersTable.setRows(headerRows)
 
-        // Auth tab
-        currentAuthConfig = request.config.auth
-        authConfigPanel.setAuth(
-            newAuth = request.config.auth,
-            newInherited = resolveInheritedAuthMode(endpoint)
-        )
+            currentAuthConfig = request.config.auth
+            authConfigPanel.setAuth(
+                newAuth = request.config.auth,
+                newInherited = resolveInheritedAuthMode(endpoint)
+            )
 
-        // Scripts tab toggles + existence indicators
-        // REQUEST level can disable all parent levels including ENDPOINT
-        setScriptsToggleLevels(listOf(ScriptLevel.GLOBAL, ScriptLevel.COLLECTION, ScriptLevel.TAG, ScriptLevel.ENDPOINT))
-        updateRequestToggles(request.config.disabledPreLevels, request.config.disabledPostLevels)
-        refreshScriptButtons()
+            setScriptsToggleLevels(listOf(ScriptLevel.GLOBAL, ScriptLevel.COLLECTION, ScriptLevel.TAG, ScriptLevel.ENDPOINT))
+            updateRequestToggles(request.config.disabledPreLevels, request.config.disabledPostLevels)
+            refreshScriptButtons()
 
-        // Body
-        if (hasBody) {
-            if (request.body.isNotEmpty()) {
-                bodyPanel.setContent(BodyContent.Raw(request.body, request.bodyContentType))
-                bodyPanel.setActiveMode(request.bodyMode)
+            if (hasBody) {
+                if (request.body.isNotEmpty()) {
+                    bodyPanel.setContent(BodyContent.Raw(request.body, request.bodyContentType))
+                    bodyPanel.setActiveMode(request.bodyMode)
+                } else {
+                    bodyPanel.setContent(BodyContent.Raw(buildBodyTemplate(endpoint), "application/json"))
+                }
             } else {
-                bodyPanel.setContent(BodyContent.Raw(buildBodyTemplate(endpoint), "application/json"))
+                val isGetOrHead = endpoint.method.name in listOf("GET", "HEAD")
+                bodyPanel.setContent(if (isGetOrHead) BodyContent.None else BodyContent.Raw("", "application/json"))
             }
-        } else {
-            val isGetOrHead = endpoint.method.name in listOf("GET", "HEAD")
-            bodyPanel.setContent(if (isGetOrHead) BodyContent.None else BodyContent.Raw("", "application/json"))
-        }
 
-        applyTabState(hasBody)
-        updateComputedUrl()
-        saveButton.isEnabled = true
+            applyTabState(hasBody)
+            updateComputedUrl()
+        } finally {
+            isLoadingRequest = false
+        }
     }
 
     /**
@@ -302,43 +309,39 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
      * Pre-fills from schema; saving will create the first SavedRequest.
      */
     fun showEndpoint(endpoint: ApiEndpoint) {
-        currentEndpoint = endpoint
-        currentRequest = null
+        isLoadingRequest = true
+        try {
+            currentEndpoint = endpoint
+            currentRequest = null
 
-        currentRequestName = "Default"
-        updateDefaultButtonState(true)
+            currentRequestName = "Default"
+            updateDefaultButtonState(true)
 
-        val hasParams = endpoint.parameters.any { it.location == ParameterLocation.PATH || it.location == ParameterLocation.QUERY }
-        val hasBody   = endpoint.requestBody != null
+            val hasBody = endpoint.requestBody != null
 
-        paramsTable.setRows(buildParamRows(endpoint, emptyMap()))
-        headersTable.setRows(endpoint.parameters
-            .filter { it.location == ParameterLocation.HEADER }
-            .map { NameValueRow(true, it.name, "", "header param") })
+            paramsTable.setRows(buildParamRows(endpoint, emptyMap()))
+            headersTable.setRows(endpoint.parameters
+                .filter { it.location == ParameterLocation.HEADER }
+                .map { NameValueRow(true, it.name, "", "header param") })
 
-        // Auth tab
-        val endpointConfig = stateService.getEndpointConfig(endpoint.id)
-        currentAuthConfig = endpointConfig.config.auth
-        authConfigPanel.setAuth(
-            newAuth = endpointConfig.config.auth,
-            newInherited = resolveInheritedAuthMode(endpoint)
-        )
+            val endpointConfig = stateService.getEndpointConfig(endpoint.id)
+            currentAuthConfig = endpointConfig.config.auth
+            authConfigPanel.setAuth(
+                newAuth = endpointConfig.config.auth,
+                newInherited = resolveInheritedAuthMode(endpoint)
+            )
 
-        // Scripts tab toggles + existence indicators
-        // ENDPOINT level can only disable parent levels, not itself
-        setScriptsToggleLevels(listOf(ScriptLevel.GLOBAL, ScriptLevel.COLLECTION, ScriptLevel.TAG))
-        updateRequestToggles(emptySet(), emptySet())
-        refreshScriptButtons()
+            setScriptsToggleLevels(listOf(ScriptLevel.GLOBAL, ScriptLevel.COLLECTION, ScriptLevel.TAG))
+            updateRequestToggles(emptySet(), emptySet())
+            refreshScriptButtons()
 
-        if (hasBody) {
-            bodyPanel.setContent(BodyContent.Raw(buildBodyTemplate(endpoint), "application/json"))
-        } else {
-            bodyPanel.setContent(BodyContent.None)
+            bodyPanel.setContent(if (hasBody) BodyContent.Raw(buildBodyTemplate(endpoint), "application/json") else BodyContent.None)
+
+            applyTabState(hasBody)
+            updateComputedUrl()
+        } finally {
+            isLoadingRequest = false
         }
-
-        applyTabState(hasBody)
-        updateComputedUrl()
-        saveButton.isEnabled = true
     }
 
     /** Restores the last user-selected tab state, or defaults to Body on first load. */
@@ -355,9 +358,10 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
 
     fun setPreviewMode(preview: Boolean) {
         previewMode = preview
-        actionButtons.forEach { it.isVisible = !preview }
-        saveButton.isVisible = true   // always visible — text changes based on mode
-        saveButton.text = if (preview) "New Request" else "Save"
+        sendButton.isVisible = !preview
+        setDefaultButton.isVisible = !preview
+        saveButton.isVisible = preview
+        saveButton.text = "New Request"
         paramsTable.setReadOnly(preview)
         headersTable.setReadOnly(preview)
         bodyPanel.setReadOnly(preview)
@@ -506,7 +510,25 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
         saveRequest()
     }
 
+    fun duplicateCurrentRequest() {
+        val endpoint = currentEndpoint ?: return
+        val request = currentRequest ?: return
+        val existingNames = stateService.getRequests(endpoint.id).map { it.name }.toSet()
+        val newName = nextDuplicateName(request.name, existingNames)
+        val newReq = request.copy(id = UUID.randomUUID().toString(), name = newName, isDefault = false)
+        stateService.upsertRequest(endpoint.id, newReq)
+        onRequestDuplicated?.invoke(endpoint, newReq)
+    }
+
+    private fun nextDuplicateName(name: String, existingNames: Set<String>): String {
+        val base = name.replace(Regex("_\\d+$"), "")
+        var i = 1
+        while ("${base}_$i" in existingNames) i++
+        return "${base}_$i"
+    }
+
     private fun autoSave() {
+        if (isLoadingRequest) return
         if (previewMode) {
             // In preview mode (no saved request loaded), save auth to EndpointConfig
             val ep = currentEndpoint ?: return

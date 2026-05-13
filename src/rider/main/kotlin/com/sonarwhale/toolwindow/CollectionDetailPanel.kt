@@ -26,14 +26,17 @@ class CollectionDetailPanel(private val project: Project) : JPanel(BorderLayout(
     private val tabs = CollapsibleTabPane()
     private val envsPanel = EnvironmentsListPanel()
 
-    // Wrapper panel used as a stable tab component; its content is replaced on each showCollection call
-    private val configTabWrapper = JPanel(BorderLayout())
-    private var configPanel: HierarchyConfigPanel? = null
+    // Stable wrapper panels — content replaced on each showCollection call
+    private val varsWrapper     = JPanel(BorderLayout())
+    private val authWrapper     = JPanel(BorderLayout())
+    private val scriptsWrapper  = JPanel(BorderLayout())
 
     init {
         add(nameLabel, BorderLayout.NORTH)
         tabs.addTab("Environments", JBScrollPane(envsPanel))
-        tabs.addTab("Variables / Auth / Scripts", configTabWrapper)
+        tabs.addTab("Variables",    varsWrapper)
+        tabs.addTab("Auth",         authWrapper)
+        tabs.addTab("Scripts",      scriptsWrapper)
         add(tabs, BorderLayout.CENTER)
     }
 
@@ -64,11 +67,12 @@ class CollectionDetailPanel(private val project: Project) : JPanel(BorderLayout(
             onSave = { updated ->
                 collectionService.updateConfig(col.id, updated)
             },
-            scriptContext = ScriptContext(level = ScriptLevel.COLLECTION, collectionId = col.id)
+            scriptContext = ScriptContext(level = ScriptLevel.COLLECTION, collectionId = col.id),
+            showOwnTabs = false
         )
-        configTabWrapper.removeAll()
-        configTabWrapper.add(newPanel, BorderLayout.CENTER)
-        configPanel = newPanel
+        varsWrapper.removeAll();    varsWrapper.add(newPanel.variablesTab, BorderLayout.CENTER)
+        authWrapper.removeAll();    authWrapper.add(newPanel.authTab,      BorderLayout.CENTER)
+        scriptsWrapper.removeAll(); scriptsWrapper.add(newPanel.scriptsTab, BorderLayout.CENTER)
         revalidate(); repaint()
     }
 }
