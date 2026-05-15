@@ -27,6 +27,7 @@ output
 _ReSharper*
 _dotTrace*
 .idea/
+!.idea/sonarwhale/
 
 # ── testprojects ─────────────────────────────
 # Portable JDK downloaded for CI / sandbox builds

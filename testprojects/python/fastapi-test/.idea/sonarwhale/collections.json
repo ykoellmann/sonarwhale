@@ -1,0 +1,37 @@
+[
+  {
+    "id": "33667f73-dca2-4df3-8a90-f7d2768e5b42",
+    "name": "My API",
+    "activeEnvironmentId": "f98c22c5-ab1e-4d73-b3ef-8f4c02b2a222",
+    "environments": [
+      {
+        "id": "f98c22c5-ab1e-4d73-b3ef-8f4c02b2a222",
+        "name": "dev",
+        "source": {
+          "type": "serverUrl",
+          "host": "http://localhost",
+          "port": 8000
+        }
+      }
+    ],
+    "config": {
+      "variables": [],
+      "auth": {
+        "mode": "INHERIT",
+        "bearerToken": "",
+        "basicUsername": "",
+        "basicPassword": "",
+        "apiKeyName": "",
+        "apiKeyValue": "",
+        "apiKeyLocation": "HEADER",
+        "oauthTokenUrl": "",
+        "oauthClientId": "",
+        "oauthClientSecret": "",
+        "oauthScope": "",
+        "oauthGrantType": "client_credentials"
+      },
+      "disabledPreLevels": [],
+      "disabledPostLevels": []
+    }
+  }
+]

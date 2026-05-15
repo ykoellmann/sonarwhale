@@ -1,0 +1,36 @@
+[
+  {
+    "id": "08090757-ba3c-4c4f-a905-26969467cab0",
+    "name": "Test",
+    "environments": [
+      {
+        "id": "b406e1ba-bedb-494f-8fbe-4bad458fea5f",
+        "name": "default",
+        "source": {
+          "type": "serverUrl",
+          "host": "http://localhost",
+          "port": 5245
+        }
+      }
+    ],
+    "config": {
+      "variables": [],
+      "auth": {
+        "mode": "INHERIT",
+        "bearerToken": "",
+        "basicUsername": "",
+        "basicPassword": "",
+        "apiKeyName": "",
+        "apiKeyValue": "",
+        "apiKeyLocation": "HEADER",
+        "oauthTokenUrl": "",
+        "oauthClientId": "",
+        "oauthClientSecret": "",
+        "oauthScope": "",
+        "oauthGrantType": "client_credentials"
+      },
+      "disabledPreLevels": [],
+      "disabledPostLevels": []
+    }
+  }
+]

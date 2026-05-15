@@ -55,7 +55,19 @@ csharp/**/.vs/
 # IDE / OS
 # ──────────────────────────────────────────────
 
-.idea/
+**/.idea/
+!csharp/SonarwhaleTestApi/.idea/
+!csharp/SonarwhaleTestApi/.idea/sonarwhale/
+csharp/SonarwhaleTestApi/.idea/sonarwhale/cache/
+!java/sonarwhale-test-api/.idea/
+!java/sonarwhale-test-api/.idea/sonarwhale/
+java/sonarwhale-test-api/.idea/sonarwhale/cache/
+!python/fastapi-test/.idea/
+!python/fastapi-test/.idea/sonarwhale/
+python/fastapi-test/.idea/sonarwhale/cache/
+!python/flask-test/.idea/
+!python/flask-test/.idea/sonarwhale/
+python/flask-test/.idea/sonarwhale/cache/
 .vscode/
 .vs/
 *.iml
@@ -63,9 +75,4 @@ csharp/**/.vs/
 Thumbs.db
 
 
-# ──────────────────────────────────────────────
-# Sonarwhale
-# ──────────────────────────────────────────────
-
-**/.sonarwhale/**
 **/uv.lock
