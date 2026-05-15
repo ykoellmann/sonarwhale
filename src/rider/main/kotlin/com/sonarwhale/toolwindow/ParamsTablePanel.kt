@@ -109,7 +109,7 @@ class ParamsTablePanel : JPanel(BorderLayout()) {
     }
 
     private fun appendBlankRow() {
-        tableModel.addRow(arrayOf(true, "", "", ""))
+        tableModel.addRow(arrayOf<Any?>(true, "", "", ""))
     }
 
     /** Returns only enabled rows with non-empty key. */
@@ -128,7 +128,7 @@ class ParamsTablePanel : JPanel(BorderLayout()) {
     fun setRows(rows: List<NameValueRow>) {
         tableModel.rowCount = 0
         rows.forEach { row ->
-            tableModel.addRow(arrayOf(row.enabled, row.key, row.value, row.description))
+            tableModel.addRow(arrayOf<Any?>(row.enabled, row.key, row.value, row.description))
         }
     }
 

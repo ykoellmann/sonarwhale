@@ -127,7 +127,9 @@ private class EnvironmentsListPanel : JPanel(BorderLayout()) {
 
     private fun showAddDialog() {
         val nameField = JTextField(10)
-        val hostField = JTextField("http://localhost", 15)
+        val hostField = JTextField("http://localhost", 15).also {
+            it.toolTipText = "Host or IP — scheme optional, e.g. localhost or 127.0.0.1"
+        }
         val portField = JTextField("5000", 6)
         val panel = JPanel(GridLayout(0, 2, 4, 4))
         panel.add(JLabel("Name:")); panel.add(nameField)

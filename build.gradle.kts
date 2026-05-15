@@ -4,7 +4,7 @@ import org.jetbrains.intellij.platform.gradle.IntelliJPlatformType
 plugins {
     id("java")
     alias(libs.plugins.kotlinJvm)
-    id("org.jetbrains.intellij.platform") version "2.10.4"
+    id("org.jetbrains.intellij.platform") version "2.15.0"
     id("me.filippov.gradle.jvm.wrapper") version "0.14.0"
 }
 
@@ -19,7 +19,7 @@ val PythonPluginVersion: String by project
 
 allprojects {
     repositories {
-        maven { setUrl("https://cache-redirector.jetbrains.com/maven-central") }
+        maven { url = uri("https://cache-redirector.jetbrains.com/maven-central") }
     }
 }
 
@@ -64,7 +64,7 @@ tasks.test {
 tasks.buildPlugin {
     doLast {
         copy {
-            from("${buildDir}/distributions/${rootProject.name}-${version}.zip")
+            from(layout.buildDirectory.file("distributions/${rootProject.name}-${version}.zip"))
             into("${rootDir}/output")
         }
 
@@ -78,7 +78,7 @@ tasks.buildPlugin {
 
 dependencies {
     intellijPlatform {
-        rider(ProductVersion, useInstaller = false)
+        rider(providers.gradleProperty("ProductVersion"))
         jetbrainsRuntime()
     }
     implementation("org.mozilla:rhino:1.7.15")
@@ -104,9 +104,10 @@ intellijPlatformTesting {
             }
         }
 
-        // IntelliJ IDEA Community — for Java / Spring Boot scanner testing.
+        // IntelliJ IDEA — for Java / Spring Boot scanner testing.
+        // IntelliJ IDEA Community (IC) was discontinued after 2025.2; the unified IntelliJ IDEA (IU) is used from 2025.3+.
         register("runIdeJava") {
-            type = IntelliJPlatformType.IntellijIdeaCommunity
+            type = IntelliJPlatformType.IntellijIdea
             version = ProductVersion
             task {
                 maxHeapSize = "1500m"

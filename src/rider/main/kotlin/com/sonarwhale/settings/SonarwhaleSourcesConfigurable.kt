@@ -65,7 +65,9 @@ class SonarwhaleSourcesConfigurable(private val project: Project) : Configurable
     private val sourceCardLayout = CardLayout()
     private val sourceCards      = JPanel(sourceCardLayout)
 
-    private val hostField      = JTextField("http://localhost")
+    private val hostField      = JTextField("http://localhost").also {
+        it.toolTipText = "Host or IP — scheme optional, e.g. localhost or http://127.0.0.1"
+    }
     private val portSpinner    = JSpinner(SpinnerNumberModel(5000, 1, 65535, 1))
     private val pathField      = JTextField().also { it.toolTipText = "Leave empty for auto-discovery" }
     private val filePathField  = TextFieldWithBrowseButton()

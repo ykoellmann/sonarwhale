@@ -1,9 +1,9 @@
 pluginManagement {
     // Provide repositories to resolve plugins
     repositories {
-        maven { setUrl("https://cache-redirector.jetbrains.com/plugins.gradle.org") }
-        maven { setUrl("https://cache-redirector.jetbrains.com/maven-central") }
-        maven { setUrl("https://cache-redirector.jetbrains.com/dl.bintray.com/kotlin/kotlin-eap") }
+        maven { url = uri("https://cache-redirector.jetbrains.com/plugins.gradle.org") }
+        maven { url = uri("https://cache-redirector.jetbrains.com/maven-central") }
+        maven { url = uri("https://cache-redirector.jetbrains.com/dl.bintray.com/kotlin/kotlin-eap") }
     }
     resolutionStrategy {
         eachPlugin {

@@ -12,12 +12,19 @@ sealed class EnvironmentSource {
 
     /** Option A: Server-URL + Port, OpenAPI wird per HTTP gefetcht. */
     data class ServerUrl(
-        val host: String,                  // z.B. "http://localhost"
+        val host: String,                  // z.B. "http://localhost" or "localhost" or "127.0.0.1"
         val port: Int,                     // z.B. 5000
         val openApiPath: String? = null    // null → Auto-Discovery
     ) : EnvironmentSource() {
-        val baseUrl: String get() = "$host:$port"
-        val openApiUrl: String? get() = openApiPath?.let { "$host:$port$it" }
+        /** Always returns a fully-qualified base URL with scheme, e.g. "http://127.0.0.1:57293". */
+        val baseUrl: String get() = "${normalizedHost()}:$port"
+        val openApiUrl: String? get() = openApiPath?.let { "${normalizedHost()}:$port$it" }
+
+        /** Prepends "http://" if the user omitted the scheme. */
+        private fun normalizedHost(): String {
+            val h = host.trim()
+            return if (h.startsWith("http://") || h.startsWith("https://")) h else "http://$h"
+        }
     }
 
     /** Option B: Lokaler Dateipfad zur OpenAPI JSON/YAML-Datei. */
