@@ -1,0 +1,71 @@
+# ──────────────────────────────────────────────
+# Java
+# ──────────────────────────────────────────────
+
+# Portable JDK downloaded for sandbox builds (large — ~200 MB, download separately)
+java/jdk-*/
+java/jdk*/
+java/*.tar.gz
+java/*.zip
+
+# Maven build output
+java/sonarwhale-test-api/target/
+
+# Maven wrapper binary (binary, not source)
+java/sonarwhale-test-api/.mvn/wrapper/maven-wrapper.jar
+
+# ──────────────────────────────────────────────
+# Python
+# ──────────────────────────────────────────────
+
+# Virtual environments
+python/fastapi-test/.venv/
+python/fastapi-test/venv/
+python/flask-test/.venv/
+python/flask-test/venv/
+
+# Bytecode / caches
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+**/.pytest_cache/
+
+# ──────────────────────────────────────────────
+# C# / .NET
+# ──────────────────────────────────────────────
+
+csharp/**/bin/
+csharp/**/obj/
+csharp/**/*.user
+csharp/**/*.suo
+csharp/**/.vs/
+
+# ──────────────────────────────────────────────
+# Environment / secrets
+# ──────────────────────────────────────────────
+
+.env
+.env.local
+.env.*.local
+**/.env
+**/.env.local
+
+# ──────────────────────────────────────────────
+# IDE / OS
+# ──────────────────────────────────────────────
+
+.idea/
+.vscode/
+.vs/
+*.iml
+.DS_Store
+Thumbs.db
+
+
+# ──────────────────────────────────────────────
+# Sonarwhale
+# ──────────────────────────────────────────────
+
+**/.sonarwhale/**
+**/uv.lock

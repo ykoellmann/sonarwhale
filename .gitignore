@@ -27,3 +27,28 @@ output
 _ReSharper*
 _dotTrace*
 .idea/
+
+# ── testprojects ─────────────────────────────
+# Portable JDK downloaded for CI / sandbox builds
+testprojects/java/jdk-*/
+testprojects/java/jdk*/
+testprojects/java/*.tar.gz
+testprojects/java/*.zip
+
+# Maven build output
+testprojects/java/**/target/
+testprojects/java/**/.mvn/wrapper/maven-wrapper.jar
+
+# Python virtual environments & bytecode
+testprojects/python/**/.venv/
+testprojects/python/**/venv/
+testprojects/python/**/__pycache__/
+testprojects/python/**/*.pyc
+
+# .NET build output
+testprojects/csharp/**/bin/
+testprojects/csharp/**/obj/
+
+# Secrets / env files
+testprojects/**/.env
+testprojects/**/.env.local

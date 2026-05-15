@@ -1,0 +1,6 @@
+@SonarwhaleTestApi_HostAddress = http://localhost:5245
+
+GET {{SonarwhaleTestApi_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

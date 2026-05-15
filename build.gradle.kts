@@ -13,6 +13,7 @@ extra["isWindows"] = isWindows
 
 val RiderPluginId: String by project
 val ProductVersion: String by project
+val PyCharmVersion: String by project
 val PublishToken: String by project
 val PythonPluginVersion: String by project
 
@@ -112,10 +113,11 @@ intellijPlatformTesting {
             }
         }
 
-        // PyCharm Community — Python support is built-in, no extra plugin needed.
+        // PyCharm — Python support is built-in, no extra plugin needed.
+        // PyCharm Community was discontinued after 2025.2; the unified PyCharm (PY) is used from 2025.3+.
         register("runIdePython") {
-            type = IntelliJPlatformType.PyCharmCommunity
-            version = ProductVersion
+            type = IntelliJPlatformType.PyCharm
+            version = PyCharmVersion
             task {
                 maxHeapSize = "1500m"
             }

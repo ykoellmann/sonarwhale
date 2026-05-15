@@ -50,8 +50,26 @@ class ResponsePanel(private val project: Project) : JPanel(BorderLayout()) {
         font = font.deriveFont(11f)
         toolTipText = "Clear console output"
     }
-    private val tabActionsBar = JPanel(FlowLayout(FlowLayout.RIGHT, 4, 0)).apply {
+    private val tabActionsBar = JPanel(FlowLayout(FlowLayout.LEFT, 4, 0)).apply {
         isOpaque = false
+    }
+
+    private var allConsoleEntries: List<ConsoleEntry> = emptyList()
+    private var activeConsoleFilter = ConsoleFilter.ALL
+    private var suppressFilterEvents = false
+
+    private val filterDropdown = com.intellij.openapi.ui.ComboBox<String>().apply {
+        ConsoleFilter.values().forEach { addItem(filterItemLabel(it, 0, 0)) }
+        font = font.deriveFont(11f)
+        addActionListener {
+            if (!suppressFilterEvents) {
+                val idx = selectedIndex
+                if (idx >= 0) {
+                    activeConsoleFilter = ConsoleFilter.values()[idx]
+                    consolePanel.setFilter(activeConsoleFilter)
+                }
+            }
+        }
     }
 
     private var currentContentType = ""
@@ -110,8 +128,10 @@ class ResponsePanel(private val project: Project) : JPanel(BorderLayout()) {
 
         openButton.addActionListener { openInEditor() }
         clearConsoleBtn.addActionListener {
+            allConsoleEntries = emptyList()
             consolePanel.showEntries(emptyList())
             tabs.setTitleAt(tabs.indexOfComponent(consolePanel), "Console")
+            refreshFilterButtons()
             updateTabActions()
         }
         tabs.onTabChanged = { _, _ -> updateTabActions() }
@@ -159,13 +179,17 @@ class ResponsePanel(private val project: Project) : JPanel(BorderLayout()) {
         timeLabel.text = ""
         sizeLabel.text = ""
         bodyArea.text = ""
-        updateTabActions()
         currentContentType = ""
         testsPanel.removeAll()
         tabs.setTitleAt(tabs.indexOfComponent(testsScroll), "Tests")
+        allConsoleEntries = emptyList()
+        activeConsoleFilter = ConsoleFilter.ALL
+        consolePanel.setFilter(ConsoleFilter.ALL)
         consolePanel.showEntries(emptyList())
         tabs.setTitleAt(tabs.indexOfComponent(consolePanel), "Console")
         testsPanel.revalidate()
+        refreshFilterButtons()
+        updateTabActions()
     }
 
     fun showTestResults(results: List<TestResult>) {
@@ -212,17 +236,23 @@ class ResponsePanel(private val project: Project) : JPanel(BorderLayout()) {
     }
 
     fun showConsole(entries: List<ConsoleEntry>) {
+        allConsoleEntries = entries
+        activeConsoleFilter = ConsoleFilter.ALL
+        consolePanel.setFilter(ConsoleFilter.ALL)
         val consoleIdx = tabs.indexOfComponent(consolePanel)
         tabs.setTitleAt(consoleIdx, if (entries.isEmpty()) "Console" else "Console (${entries.size})")
         consolePanel.showEntries(entries)
+        refreshFilterButtons()
+        updateTabActions()
         if (entries.isNotEmpty()) {
             tabs.selectedIndex = consoleIdx
         }
     }
 
     private fun buildTabsWithActions(): JLayeredPane {
-        tabActionsBar.add(openButton)
+        tabActionsBar.add(filterDropdown)
         tabActionsBar.add(clearConsoleBtn)
+        tabActionsBar.add(openButton)
         updateTabActions()
         return object : JLayeredPane() {
             override fun doLayout() {
@@ -239,10 +269,39 @@ class ResponsePanel(private val project: Project) : JPanel(BorderLayout()) {
 
     private fun updateTabActions() {
         val title = if (tabs.selectedIndex >= 0) tabs.getTitleAt(tabs.selectedIndex) else ""
+        val onConsole = title.startsWith("Console")
+        filterDropdown.isVisible = onConsole
+        clearConsoleBtn.isVisible = onConsole
         openButton.isVisible = title.startsWith("Body") && bodyArea.text.isNotEmpty()
-        clearConsoleBtn.isVisible = title.startsWith("Console")
         tabActionsBar.revalidate()
         tabActionsBar.repaint()
+    }
+
+    private fun refreshFilterButtons() {
+        val warnCount  = allConsoleEntries.count {
+            it is ConsoleEntry.LogEntry && it.level == com.sonarwhale.script.LogLevel.WARN
+        }
+        val errorCount = allConsoleEntries.count {
+            (it is ConsoleEntry.LogEntry && it.level == com.sonarwhale.script.LogLevel.ERROR) ||
+                    it is ConsoleEntry.ErrorEntry
+        }
+        suppressFilterEvents = true
+        val model = filterDropdown.model as javax.swing.DefaultComboBoxModel<String>
+        model.removeAllElements()
+        ConsoleFilter.values().forEach { model.addElement(filterItemLabel(it, warnCount, errorCount)) }
+        filterDropdown.selectedIndex = ConsoleFilter.values().indexOf(activeConsoleFilter)
+        suppressFilterEvents = false
+        tabActionsBar.revalidate()
+        tabActionsBar.repaint()
+    }
+
+    private fun filterItemLabel(filter: ConsoleFilter, warnCount: Int, errorCount: Int): String {
+        val base = filter.name.lowercase().replaceFirstChar { it.uppercase() }
+        return when (filter) {
+            ConsoleFilter.WARN  -> if (warnCount  > 0) "$base ($warnCount)"  else base
+            ConsoleFilter.ERROR -> if (errorCount > 0) "$base ($errorCount)" else base
+            else -> base
+        }
     }
 
     private fun openInEditor() {

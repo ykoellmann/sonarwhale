@@ -33,19 +33,51 @@ class ScriptEngine {
         console: ConsoleOutput = ConsoleOutput()
     ) {
         if (scripts.isEmpty()) return
+        executeWithScope(scripts.map { Pair(it.level, it) }, context, console)
+    }
 
+    fun executeChainLeveled(
+        levels: List<Pair<ScriptLevel, ScriptFile?>>,
+        phase: ScriptPhase,
+        context: ScriptContext,
+        console: ConsoleOutput = ConsoleOutput()
+    ) {
+        if (levels.isEmpty()) return
+        val phaseName = if (phase == ScriptPhase.PRE) "pre" else "post"
+        // Log warnings for missing levels before entering Rhino (no scope needed for logging)
+        // Then run found scripts sharing a single scope for correct sw.env accumulation
+        val hasScripts = levels.any { it.second != null }
+        if (!hasScripts) {
+            levels.forEach { (level, _) ->
+                console.log(LogLevel.WARN, "No ${level.name.lowercase()}-level $phaseName-script found, skipping")
+            }
+            return
+        }
+        executeWithScope(levels, context, console, phaseName)
+    }
+
+    private fun executeWithScope(
+        levels: List<Pair<ScriptLevel, ScriptFile?>>,
+        context: ScriptContext,
+        console: ConsoleOutput,
+        phaseName: String = ""
+    ) {
         val prevCl = Thread.currentThread().contextClassLoader
         Thread.currentThread().contextClassLoader = ScriptEngine::class.java.classLoader
         try {
             val cx = Context.enter()
-            cx.optimizationLevel = -1   // interpreted mode — no class generation issues
+            cx.optimizationLevel = -1
             cx.languageVersion = Context.VERSION_ES6
             try {
                 val scope = cx.initStandardObjects()
                 ScriptableObject.putProperty(scope, "sw", buildSwObject(cx, scope, context, console))
                 ScriptableObject.putProperty(scope, "console", buildConsoleObject(console))
 
-                for (script in scripts) {
+                for ((level, script) in levels) {
+                    if (script == null) {
+                        console.log(LogLevel.WARN, "No ${level.name.lowercase()}-level $phaseName-script found, skipping")
+                        continue
+                    }
                     console.scriptStart(script)
                     runCatching {
                         val code = script.path.readText()
@@ -72,11 +104,13 @@ class ScriptEngine {
     private fun buildConsoleObject(console: ConsoleOutput): NativeObject {
         val obj = NativeObject()
         obj.put("log",   obj, rhinoFn { _, _, args ->
-            console.log(LogLevel.LOG,   args.joinToString(" ") { it?.toString() ?: "null" }); null })
+            console.log(LogLevel.LOG,     args.joinToString(" ") { it?.toString() ?: "null" }); null })
         obj.put("warn",  obj, rhinoFn { _, _, args ->
-            console.log(LogLevel.WARN,  args.joinToString(" ") { it?.toString() ?: "null" }); null })
+            console.log(LogLevel.WARN,    args.joinToString(" ") { it?.toString() ?: "null" }); null })
         obj.put("error", obj, rhinoFn { _, _, args ->
-            console.log(LogLevel.ERROR, args.joinToString(" ") { it?.toString() ?: "null" }); null })
+            console.log(LogLevel.ERROR,   args.joinToString(" ") { it?.toString() ?: "null" }); null })
+        obj.put("pass",  obj, rhinoFn { _, _, args ->
+            console.log(LogLevel.SUCCESS, args.joinToString(" ") { it?.toString() ?: "null" }); null })
         return obj
     }
 

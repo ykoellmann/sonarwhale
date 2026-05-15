@@ -679,6 +679,7 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
                     .mapValues { (_, vs) -> vs.firstOrNull() ?: "" }
 
                 // Record main request between pre and post scripts (timeline order)
+                consoleOutput.requestStart(endpoint.method.name, endpoint.path)
                 consoleOutput.http(
                     endpoint.method.name, finalUrl, response.statusCode(), duration,
                     finalHeaders, finalBody.ifEmpty { null },

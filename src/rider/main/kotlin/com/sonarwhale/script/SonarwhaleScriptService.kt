@@ -53,8 +53,8 @@ class SonarwhaleScriptService(private val project: Project) {
         val disabledScriptLevels = disabledLevels
             .mapNotNull { runCatching { ScriptLevel.valueOf(it) }.getOrNull() }
             .toSet()
-        val chain = resolver.resolvePreChain(tag, endpoint.method.name, endpoint.path, request.name, collectionId, disabledScriptLevels)
-        runCatching { engine.executeChain(chain, ctx, console) }
+        val levels = resolver.resolvePreLevels(tag, endpoint.method.name, endpoint.path, request.name, collectionId, disabledScriptLevels)
+        runCatching { engine.executeChainLeveled(levels, ScriptPhase.PRE, ctx, console) }
             .onFailure { e ->
                 console.log(LogLevel.ERROR, "Pre-script chain failed: ${e.message ?: e.javaClass.simpleName}")
             }
@@ -94,8 +94,8 @@ class SonarwhaleScriptService(private val project: Project) {
         val disabledScriptLevels = disabledLevels
             .mapNotNull { runCatching { ScriptLevel.valueOf(it) }.getOrNull() }
             .toSet()
-        val chain = resolver.resolvePostChain(tag, endpoint.method.name, endpoint.path, request.name, collectionId, disabledScriptLevels)
-        runCatching { engine.executeChain(chain, postCtx, console) }
+        val levels = resolver.resolvePostLevels(tag, endpoint.method.name, endpoint.path, request.name, collectionId, disabledScriptLevels)
+        runCatching { engine.executeChainLeveled(levels, ScriptPhase.POST, postCtx, console) }
             .onFailure { e ->
                 console.log(LogLevel.ERROR, "Post-script chain failed: ${e.message ?: e.javaClass.simpleName}")
             }
