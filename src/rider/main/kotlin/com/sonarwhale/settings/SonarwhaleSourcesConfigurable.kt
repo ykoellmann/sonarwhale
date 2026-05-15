@@ -15,14 +15,17 @@ import com.sonarwhale.model.AuthMode
 import com.sonarwhale.model.CollectionEnvironment
 import com.sonarwhale.model.EnvironmentSource
 import com.sonarwhale.service.CollectionService
+import com.sonarwhale.service.SonarwhaleInitService
 import com.sonarwhale.toolwindow.AuthConfigPanel
 import java.awt.BorderLayout
 import java.awt.CardLayout
+import java.awt.Color
 import java.awt.Font
 import java.awt.GridBagConstraints
 import java.awt.GridBagLayout
 import java.awt.Insets
 import java.util.UUID
+import javax.swing.BorderFactory
 import javax.swing.ButtonGroup
 import javax.swing.DefaultListModel
 import javax.swing.JButton
@@ -31,11 +34,13 @@ import javax.swing.JOptionPane
 import javax.swing.JPanel
 import javax.swing.JRadioButton
 import javax.swing.JScrollPane
+import javax.swing.JSeparator
 import javax.swing.JSpinner
 import javax.swing.JTextArea
 import javax.swing.JTextField
 import javax.swing.ListSelectionModel
 import javax.swing.SpinnerNumberModel
+import javax.swing.SwingConstants
 
 /**
  * Settings page for managing collections and their OpenAPI sources.
@@ -45,11 +50,16 @@ import javax.swing.SpinnerNumberModel
 class SonarwhaleSourcesConfigurable(private val project: Project) : Configurable {
 
     private val service: CollectionService get() = CollectionService.getInstance(project)
+    private val initService: SonarwhaleInitService get() = SonarwhaleInitService.getInstance(project)
 
     private var collections: MutableList<ApiCollection> = mutableListOf()
     private var originalIds: Set<String> = emptySet()
     private var modified = false
     private var suppressingListener = false
+
+    // Kept as fields so we can show/hide/enable them after init/deactivate
+    private var bannerPanel: JPanel? = null
+    private var mainContentPanel: JPanel? = null
 
     private val listModel = DefaultListModel<String>()
     private val collectionList = JBList(listModel).apply {
@@ -118,10 +128,35 @@ class SonarwhaleSourcesConfigurable(private val project: Project) : Configurable
         portSpinner.addChangeListener { modified = true }
         staticArea.document.addDocumentListener(markModified)
 
-        val root = JPanel(BorderLayout(8, 0))
-        root.add(buildListPanel(), BorderLayout.WEST)
-        root.add(buildDetailPanel(), BorderLayout.CENTER)
-        return root
+        val collectionsPanel = JPanel(BorderLayout(8, 0))
+        collectionsPanel.add(buildListPanel(), BorderLayout.WEST)
+        collectionsPanel.add(buildDetailPanel(), BorderLayout.CENTER)
+        collectionsPanel.alignmentX = java.awt.Component.LEFT_ALIGNMENT
+
+        val dangerZone = buildDangerZonePanel()
+        dangerZone.alignmentX = java.awt.Component.LEFT_ALIGNMENT
+
+        // BoxLayout Y_AXIS: panels stack vertically and take their preferred height,
+        // so the danger zone follows directly below the configuration content.
+        val main = JPanel().apply {
+            layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.Y_AXIS)
+        }
+        main.add(collectionsPanel)
+        main.add(dangerZone)
+        mainContentPanel = main
+
+        val initialized = CollectionService.isInitialized(project)
+        main.isEnabled = initialized
+        setDeepEnabled(main, initialized)
+
+        val banner = buildInitBanner()
+        bannerPanel = banner
+        banner.isVisible = !initialized
+
+        val outer = JPanel(BorderLayout(0, 8))
+        outer.add(banner, BorderLayout.NORTH)
+        outer.add(main,   BorderLayout.CENTER)
+        return outer
     }
 
     override fun isModified() = modified
@@ -166,9 +201,9 @@ class SonarwhaleSourcesConfigurable(private val project: Project) : Configurable
         }
 
         val panel = JPanel(BorderLayout())
+        collectionList.fixedCellWidth = JBUI.scale(160)
         panel.add(toolbar, BorderLayout.NORTH)
         panel.add(JScrollPane(collectionList), BorderLayout.CENTER)
-        panel.preferredSize = JBUI.size(180, 360)
         return panel
     }
 
@@ -214,10 +249,10 @@ class SonarwhaleSourcesConfigurable(private val project: Project) : Configurable
     private fun buildDetailPanel(): JPanel {
         val gbc = GridBagConstraints().also {
             it.fill = GridBagConstraints.HORIZONTAL; it.anchor = GridBagConstraints.WEST
-            it.insets = Insets(3, 4, 3, 4)
+            it.insets = Insets(1, 4, 1, 4)
         }
         val form = JPanel(GridBagLayout())
-        form.border = JBUI.Borders.empty(4, 8)
+        form.border = JBUI.Borders.empty(2, 8)
 
         gbc.gridy = 0; gbc.gridx = 0; gbc.weightx = 0.0
         form.add(JBLabel("Name:"), gbc)
@@ -243,7 +278,7 @@ class SonarwhaleSourcesConfigurable(private val project: Project) : Configurable
         panel.add(JBLabel("Configuration").apply {
             foreground = JBColor.GRAY; font = font.deriveFont(Font.PLAIN, 11f)
             border = JBUI.Borders.compound(
-                JBUI.Borders.customLineBottom(JBColor.border()), JBUI.Borders.empty(6, 8))
+                JBUI.Borders.customLineBottom(JBColor.border()), JBUI.Borders.empty(4, 8))
         }, BorderLayout.NORTH)
         panel.add(form, BorderLayout.CENTER)
         return panel
@@ -251,8 +286,8 @@ class SonarwhaleSourcesConfigurable(private val project: Project) : Configurable
 
     private fun buildSourceCards() {
         val serverPanel = JPanel(GridBagLayout())
-        serverPanel.border = JBUI.Borders.empty(6, 0)
-        val sg = GridBagConstraints().also { it.fill = GridBagConstraints.HORIZONTAL; it.insets = Insets(2, 4, 2, 4) }
+        serverPanel.border = JBUI.Borders.empty(2, 0)
+        val sg = GridBagConstraints().also { it.fill = GridBagConstraints.HORIZONTAL; it.insets = Insets(1, 4, 1, 4) }
         sg.gridy = 0; sg.gridx = 0; sg.weightx = 0.0; serverPanel.add(JBLabel("Host:"), sg)
         sg.gridx = 1; sg.weightx = 1.0; serverPanel.add(hostField, sg)
         sg.gridy = 1; sg.gridx = 0; sg.weightx = 0.0; serverPanel.add(JBLabel("Port:"), sg)
@@ -363,7 +398,124 @@ class SonarwhaleSourcesConfigurable(private val project: Project) : Configurable
         sourceAuthPanel.isVisible = true
     }
 
+    // ── Init banner ───────────────────────────────────────────────────────────
+
+    private fun buildInitBanner(): JPanel {
+        val panel = JPanel(BorderLayout(8, 0))
+        // Line border + inner padding only — no outer margin, so the background
+        // colour fills exactly the area inside the border line and no further.
+        panel.border = BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(JBColor(Color(180, 160, 80), Color(150, 130, 60))),
+            JBUI.Borders.empty(8, 12)
+        )
+        panel.background = JBColor(Color(255, 250, 220), Color(80, 70, 30))
+        panel.isOpaque = true
+
+        val icon = JBLabel(AllIcons.General.Warning)
+        panel.add(icon, BorderLayout.WEST)
+
+        val text = JBLabel(
+            "<html>Sonarwhale is not initialized for this project. " +
+            "Settings cannot be edited until the project is initialized.</html>"
+        )
+        panel.add(text, BorderLayout.CENTER)
+
+        val initBtn = JButton("Initialize now").apply {
+            addActionListener {
+                initService.initProject()
+                bannerPanel?.isVisible = false
+                mainContentPanel?.let { setDeepEnabled(it, true) }
+            }
+        }
+        panel.add(initBtn, BorderLayout.EAST)
+        return panel
+    }
+
+    // ── Danger zone ───────────────────────────────────────────────────────────
+
+    private fun buildDangerZonePanel(): JPanel {
+        val panel = JPanel(BorderLayout(0, 8))
+        panel.border = JBUI.Borders.empty(12, 0, 0, 0)
+
+        val separator = JSeparator(SwingConstants.HORIZONTAL)
+        panel.add(separator, BorderLayout.NORTH)
+
+        val label = JBLabel("Project").apply {
+            foreground = JBColor.GRAY
+            font = font.deriveFont(Font.BOLD, 11f)
+            border = JBUI.Borders.empty(4, 0)
+        }
+
+        val deactivateBtn = JButton("Deactivate").apply {
+            toolTipText = "Removes .idea/sonarwhale/ (local config). Scripts in .sonarwhale/ are kept."
+            addActionListener { onDeactivate() }
+        }
+
+        val resetBtn = JButton("Reset (Delete all data)").apply {
+            foreground = JBColor(Color(180, 40, 40), Color(220, 80, 80))
+            toolTipText = "Deletes both .idea/sonarwhale/ and .sonarwhale/. Irreversible."
+            addActionListener { onReset() }
+        }
+
+        val buttons = JPanel(java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 8, 0))
+        buttons.isOpaque = false
+        buttons.add(deactivateBtn)
+        buttons.add(resetBtn)
+
+        val content = JPanel(BorderLayout())
+        content.isOpaque = false
+        content.add(label,   BorderLayout.NORTH)
+        content.add(buttons, BorderLayout.CENTER)
+        panel.add(content, BorderLayout.CENTER)
+        return panel
+    }
+
+    private fun onDeactivate() {
+        val confirm = JOptionPane.showConfirmDialog(
+            mainContentPanel,
+            "Deactivate Sonarwhale for this project?\n\n" +
+            "This will delete .idea/sonarwhale/ (collections and cache).\n" +
+            "Your scripts in .sonarwhale/ will not be touched.",
+            "Deactivate Sonarwhale",
+            JOptionPane.YES_NO_OPTION,
+            JOptionPane.WARNING_MESSAGE
+        )
+        if (confirm != JOptionPane.YES_OPTION) return
+        initService.deactivateProject()
+        bannerPanel?.isVisible = true
+        mainContentPanel?.let { setDeepEnabled(it, false) }
+        reset()
+    }
+
+    private fun onReset() {
+        val confirm = JOptionPane.showConfirmDialog(
+            mainContentPanel,
+            "<html>Reset Sonarwhale for this project?<br/><br/>" +
+            "This will delete:<br/>" +
+            "&nbsp;&nbsp;<b>.idea/sonarwhale/</b> &mdash; local config (gitignored)<br/>" +
+            "&nbsp;&nbsp;<b>.sonarwhale/</b> &mdash; scripts (may be committed to git)<br/><br/>" +
+            "<b>This cannot be undone.</b></html>",
+            "Reset Sonarwhale",
+            JOptionPane.YES_NO_OPTION,
+            JOptionPane.WARNING_MESSAGE
+        )
+        if (confirm != JOptionPane.YES_OPTION) return
+        initService.resetProject()
+        bannerPanel?.isVisible = true
+        mainContentPanel?.let { setDeepEnabled(it, false) }
+        reset()
+    }
+
     // ── Utilities ─────────────────────────────────────────────────────────────
+
+    /** Recursively enables or disables all child components of [panel]. */
+    private fun setDeepEnabled(panel: JPanel, enabled: Boolean) {
+        fun recurse(c: java.awt.Component) {
+            c.isEnabled = enabled
+            if (c is java.awt.Container) c.components.forEach { recurse(it) }
+        }
+        panel.components.forEach { recurse(it) }
+    }
 
     private fun withSuppressedListener(block: () -> Unit) {
         suppressingListener = true

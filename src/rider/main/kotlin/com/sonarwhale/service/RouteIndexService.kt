@@ -57,6 +57,14 @@ class RouteIndexService(private val project: Project) : Disposable {
     fun getEndpointsForCollection(collectionId: String): List<ApiEndpoint> =
         endpointsByCollection[collectionId] ?: emptyList()
 
+    /** Clears all endpoint data and notifies UI. Used when project is deactivated. */
+    fun clear() {
+        endpointsByCollection.clear()
+        ApplicationManager.getApplication().invokeLater {
+            endpointListeners.toList().forEach { it(emptyList()) }
+        }
+    }
+
     fun getCollectionId(endpointId: String): String? =
         endpointsByCollection.entries.firstOrNull { (_, eps) ->
             eps.any { it.id == endpointId }

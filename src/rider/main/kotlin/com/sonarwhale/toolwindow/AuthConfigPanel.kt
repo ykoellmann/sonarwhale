@@ -21,7 +21,11 @@ class AuthConfigPanel(
     private val modeCombo = JComboBox(AuthMode.values()).apply {
         selectedItem = auth.mode
     }
-    private val fieldsPanel = JPanel(CardLayout())
+    private val fieldsPanel = object : JPanel(CardLayout()) {
+        override fun getPreferredSize(): Dimension =
+            components.firstOrNull { it.isVisible }?.preferredSize ?: Dimension(0, 0)
+        override fun getMinimumSize(): Dimension = preferredSize
+    }
     private val inheritHintLabel = JBLabel("").apply {
         font = font.deriveFont(Font.ITALIC, 10f)
         foreground = JBColor.GRAY
@@ -136,6 +140,7 @@ class AuthConfigPanel(
         (fieldsPanel.layout as CardLayout).show(fieldsPanel, mode.name)
         inheritHintLabel.text = if (mode == AuthMode.INHERIT && inheritedMode != AuthMode.NONE)
             "(inherits ${inheritedMode.name} from parent)" else ""
+        revalidate()
     }
 
     private fun buildBearerPanel() = formPanel(

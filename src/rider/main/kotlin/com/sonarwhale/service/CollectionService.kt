@@ -19,16 +19,15 @@ class CollectionService(private val project: Project) : Disposable {
     private val collections = mutableListOf<ApiCollection>()
     private val listeners = mutableListOf<() -> Unit>()
 
+    private val storageDir: File
+        get() = File(project.basePath ?: "", ".idea/sonarwhale")
+
     private val storageFile: File
-        get() {
-            val dir = File(project.basePath ?: "", ".idea/sonarwhale")
-            dir.mkdirs()
-            return File(dir, "collections.json")
-        }
+        get() = File(storageDir, "collections.json")
 
     val cacheDir: File
         get() {
-            val dir = File(project.basePath ?: "", ".idea/sonarwhale/cache")
+            val dir = File(storageDir, "cache")
             dir.mkdirs()
             return dir
         }
@@ -111,6 +110,7 @@ class CollectionService(private val project: Project) : Disposable {
     // ── Persistence ───────────────────────────────────────────────────────────
 
     private fun save() = runCatching {
+        storageDir.mkdirs()
         val arr = JsonArray()
         for (col in collections) arr.add(collectionToJson(col))
         storageFile.writeText(gson.toJson(arr))
@@ -142,14 +142,8 @@ class CollectionService(private val project: Project) : Disposable {
             }
         }
 
-        // Fresh default
-        val devEnv = CollectionEnvironment(
-            name = "dev",
-            source = EnvironmentSource.ServerUrl(host = "http://localhost", port = 5000)
-        )
-        collections += ApiCollection(name = "My API", environments = listOf(devEnv),
-            activeEnvironmentId = devEnv.id)
-        save()
+        // No file and no migration → not yet initialized; leave collections empty.
+        // Call createDefault() explicitly (e.g. from SonarwhaleInitService) to set up.
     }
 
     private fun migrateFromOldEnvironments(file: File): List<ApiCollection> = runCatching {
@@ -262,9 +256,26 @@ class CollectionService(private val project: Project) : Disposable {
         )
     }.getOrNull()
 
+    /** Creates an empty collections.json so isInitialized() returns true. Called by SonarwhaleInitService. */
+    fun createDefault() {
+        collections.clear()
+        save()
+        notifyListeners()
+    }
+
+    /** Clears all in-memory collections without touching disk. Used on deactivation. */
+    fun clear() {
+        collections.clear()
+        notifyListeners()
+    }
+
     override fun dispose() { listeners.clear() }
 
     companion object {
         fun getInstance(project: Project): CollectionService = project.service()
+
+        /** True iff this project has already been initialized (collections.json exists). */
+        fun isInitialized(project: Project): Boolean =
+            File(project.basePath ?: return false, ".idea/sonarwhale/collections.json").exists()
     }
 }

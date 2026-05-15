@@ -24,6 +24,8 @@
 
   <extensions defaultExtensionNs="com.intellij">
 
+    <projectService serviceImplementation="com.sonarwhale.service.SonarwhaleInitService"/>
+
     <!-- Tool window shown at the bottom of Rider -->
     <toolWindow
         id="Sonarwhale"

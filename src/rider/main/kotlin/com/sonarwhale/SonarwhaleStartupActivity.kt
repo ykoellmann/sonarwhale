@@ -11,25 +11,35 @@ import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.wm.ToolWindowManager
 import com.sonarwhale.gutter.SonarwhaleGutterService
 import com.sonarwhale.script.SonarwhaleScriptService
+import com.sonarwhale.service.CollectionService
 import com.sonarwhale.service.RouteIndexService
 import com.sonarwhale.toolwindow.SonarwhaleToolWindowFactory
 import java.nio.file.Path
 
 class SonarwhaleStartupActivity : ProjectActivity {
     override suspend fun execute(project: Project) {
-        // Eagerly initialize gutter service so it can register its editor listeners
+        // Always register gutter service so editor listeners are in place regardless
+        // of initialization state (needed for when the user initializes later).
         SonarwhaleGutterService.getInstance(project)
-        RouteIndexService.getInstance(project).refresh()
+
+        val initialized = CollectionService.isInitialized(project)
 
         // Eagerly create the tool window panel so its run-request listener is active
-        // before the user has opened the tool window for the first time (needed for
-        // silent gutter-icon execution to work on a fresh IDE start).
+        // before the user opens it for the first time.
         ApplicationManager.getApplication().invokeLater {
             val toolWindow = ToolWindowManager.getInstance(project).getToolWindow("Sonarwhale")
             if (toolWindow != null && toolWindow.contentManager.contentCount == 0) {
-                SonarwhaleToolWindowFactory.initContent(project, toolWindow)
+                if (initialized) {
+                    SonarwhaleToolWindowFactory.initContent(project, toolWindow)
+                } else {
+                    SonarwhaleToolWindowFactory.initBlankContent(project, toolWindow)
+                }
             }
         }
+
+        if (!initialized) return
+
+        RouteIndexService.getInstance(project).refresh()
 
         val scriptService = SonarwhaleScriptService.getInstance(project)
         scriptService.ensureSwDts()

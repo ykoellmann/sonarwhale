@@ -67,7 +67,7 @@ class SonarwhalePanel(private val project: Project) : JPanel(BorderLayout()) {
         leftPanel.add(progressBar, BorderLayout.SOUTH)
         leftPanel.add(JBScrollPane(endpointTree), BorderLayout.CENTER)
 
-        val splitter = OnePixelSplitter(false, 0.33f)
+        val splitter = OnePixelSplitter(false, 0.20f)
         splitter.firstComponent = leftPanel
         splitter.secondComponent = detailPanel
         add(splitter, BorderLayout.CENTER)
