@@ -1,5 +1,7 @@
 package com.sonarwhale.model
 
+enum class ResponseOpenMode { SCRATCH, TEMP }
+
 data class SonarwhaleGeneralSettings(
     val gutterIconsEnabled: Boolean = true,
     val autoRefreshIntervalSeconds: Int = 60,
@@ -7,5 +9,6 @@ data class SonarwhaleGeneralSettings(
     val requestTimeoutSeconds: Int = 30,
     val followRedirects: Boolean = true,
     val verifySsl: Boolean = true,
-    val defaultContentType: String = "application/json"
+    val defaultContentType: String = "application/json",
+    val responseOpenMode: ResponseOpenMode = ResponseOpenMode.SCRATCH
 )

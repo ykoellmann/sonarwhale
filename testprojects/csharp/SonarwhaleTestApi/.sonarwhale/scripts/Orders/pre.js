@@ -21,10 +21,10 @@ var token = sw.env.get('jwt_token');
 if (!isTokenValid(token)) {
     if (token) console.log('[Orders Pre] JWT expired or invalid — re-logging in');
     else console.log('[Orders Pre] No JWT found — logging in as user/user123');
-    var baseUrl = sw.env.get('base_url') || 'http://localhost:5157';
+    var baseUrl = sw.env.get('baseUrl');
     var res = sw.http.post(
         baseUrl + '/api/auth/login',
-        JSON.stringify({ username: 'user', password: 'user123' }),
+        JSON.stringify({ username: sw.env.get('username'), password: sw.env.get('password')}),
         { 'Content-Type': 'application/json' }
     );
     if (res.status === 200) {

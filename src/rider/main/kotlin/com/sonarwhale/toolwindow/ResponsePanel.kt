@@ -4,13 +4,21 @@ import com.google.gson.GsonBuilder
 import com.google.gson.JsonParser
 import com.intellij.ide.scratch.ScratchRootType
 import com.intellij.lang.Language
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.command.WriteCommandAction
+import com.intellij.openapi.editor.EditorFactory
+import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.fileTypes.PlainTextFileType
 import com.intellij.openapi.fileTypes.PlainTextLanguage
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.ui.EditorTextField
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.util.ui.JBUI
+import com.sonarwhale.model.ResponseOpenMode
 import com.sonarwhale.script.ConsoleEntry
 import com.sonarwhale.script.TestResult
 import java.awt.BorderLayout
@@ -18,13 +26,13 @@ import java.awt.Color
 import java.awt.Dimension
 import java.awt.FlowLayout
 import java.awt.Font
+import java.nio.file.Files
 import javax.swing.Box
 import javax.swing.BoxLayout
 import javax.swing.JLayeredPane
 import javax.swing.JButton
 import javax.swing.JPanel
 import javax.swing.JSeparator
-import javax.swing.JTextArea
 import javax.swing.SwingWorker
 
 class ResponsePanel(private val project: Project) : JPanel(BorderLayout()) {
@@ -73,12 +81,20 @@ class ResponsePanel(private val project: Project) : JPanel(BorderLayout()) {
     }
 
     private var currentContentType = ""
-    private val bodyArea = JTextArea().apply {
-        isEditable = false
-        font = Font(Font.MONOSPACED, Font.PLAIN, 12)
-        border = JBUI.Borders.empty(8)
+    var responseOpenMode: ResponseOpenMode = ResponseOpenMode.SCRATCH
+
+    private val bodyDocument = EditorFactory.getInstance().createDocument("")
+    private val bodyEditor = EditorTextField(bodyDocument, project, PlainTextFileType.INSTANCE, true, false).apply {
+        setOneLineMode(false)
+        addSettingsProvider { editor ->
+            (editor as? EditorEx)?.apply {
+                setVerticalScrollbarVisible(true)
+                setHorizontalScrollbarVisible(true)
+                isViewer = true
+            }
+        }
     }
-    private val bodyScroll = JBScrollPane(bodyArea)
+
     private val tabs = CollapsibleTabPane()
     private val testsPanel = JPanel().apply {
         layout = BoxLayout(this, BoxLayout.Y_AXIS)
@@ -121,7 +137,7 @@ class ResponsePanel(private val project: Project) : JPanel(BorderLayout()) {
         headerWrapper.add(JSeparator(), BorderLayout.SOUTH)
 
         add(headerWrapper, BorderLayout.NORTH)
-        tabs.addTab("Body", bodyScroll)
+        tabs.addTab("Body", bodyEditor)
         tabs.addTab("Tests", testsScroll)
         tabs.addTab("Console", consolePanel)
         add(buildTabsWithActions(), BorderLayout.CENTER)
@@ -144,8 +160,7 @@ class ResponsePanel(private val project: Project) : JPanel(BorderLayout()) {
             statusLabel.foreground = JBColor(Color(0xCC, 0x00, 0x00), Color(0xFF, 0x44, 0x44))
             timeLabel.text = ""
             sizeLabel.text = ""
-            bodyArea.text = body
-            bodyArea.caretPosition = 0
+            setBodyText(body, "")
             updateTabActions()
             return
         }
@@ -155,15 +170,14 @@ class ResponsePanel(private val project: Project) : JPanel(BorderLayout()) {
         statusLabel.foreground = statusColor(statusCode)
         timeLabel.text = "${durationMs} ms"
         sizeLabel.text = formatByteSize(body.toByteArray().size)
-        bodyArea.text = "…"
+        setBodyText("…", "")
         updateTabActions()
 
         object : SwingWorker<String, Unit>() {
             override fun doInBackground(): String = formatBody(body, contentType)
             override fun done() {
                 val text = runCatching { get() }.getOrDefault(body)
-                bodyArea.text = text
-                bodyArea.caretPosition = 0
+                setBodyText(text, currentContentType)
                 if (text.isNotEmpty()) {
                     val (_, ext) = ContentTypeUtils.langAndExt(currentContentType)
                     openButton.toolTipText = "Open in editor as .$ext"
@@ -178,7 +192,7 @@ class ResponsePanel(private val project: Project) : JPanel(BorderLayout()) {
         statusLabel.foreground = JBColor.GRAY
         timeLabel.text = ""
         sizeLabel.text = ""
-        bodyArea.text = ""
+        setBodyText("", "")
         currentContentType = ""
         testsPanel.removeAll()
         tabs.setTitleAt(tabs.indexOfComponent(testsScroll), "Tests")
@@ -272,7 +286,7 @@ class ResponsePanel(private val project: Project) : JPanel(BorderLayout()) {
         val onConsole = title.startsWith("Console")
         filterDropdown.isVisible = onConsole
         clearConsoleBtn.isVisible = onConsole
-        openButton.isVisible = title.startsWith("Body") && bodyArea.text.isNotEmpty()
+        openButton.isVisible = title.startsWith("Body") && bodyDocument.text.isNotEmpty()
         tabActionsBar.revalidate()
         tabActionsBar.repaint()
     }
@@ -304,15 +318,44 @@ class ResponsePanel(private val project: Project) : JPanel(BorderLayout()) {
         }
     }
 
+    /** Updates the embedded editor with new content and applies correct language highlighting. */
+    private fun setBodyText(text: String, contentType: String) {
+        val (langId, _) = ContentTypeUtils.langAndExt(contentType)
+        val fileType = langId.takeIf { it.isNotEmpty() }
+            ?.let { Language.findLanguageByID(it)?.associatedFileType }
+            ?: PlainTextFileType.INSTANCE
+        bodyEditor.fileType = fileType
+        WriteCommandAction.runWriteCommandAction(project) {
+            bodyDocument.setText(text)
+        }
+    }
+
     private fun openInEditor() {
-        val content = bodyArea.text.ifEmpty { return }
+        val content = bodyDocument.text.ifEmpty { return }
         val (langId, ext) = ContentTypeUtils.langAndExt(currentContentType)
         val lang = langId.takeIf { it.isNotEmpty() }?.let { Language.findLanguageByID(it) }
             ?: PlainTextLanguage.INSTANCE
-        val scratch = ScratchRootType.getInstance()
-            .createScratchFile(project, "sonarwhale-response.$ext", lang, content)
-            ?: return
-        FileEditorManager.getInstance(project).openFile(scratch, true)
+
+        when (responseOpenMode) {
+            ResponseOpenMode.SCRATCH -> {
+                val scratch = ScratchRootType.getInstance()
+                    .createScratchFile(project, "sonarwhale-response.$ext", lang, content)
+                    ?: return
+                FileEditorManager.getInstance(project).openFile(scratch, true)
+            }
+            ResponseOpenMode.TEMP -> {
+                ApplicationManager.getApplication().executeOnPooledThread {
+                    val tempFile = Files.createTempFile("sonarwhale-response-", ".$ext").toFile()
+                    tempFile.writeText(content)
+                    tempFile.deleteOnExit()
+                    val vf = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(tempFile)
+                        ?: return@executeOnPooledThread
+                    ApplicationManager.getApplication().invokeLater {
+                        FileEditorManager.getInstance(project).openFile(vf, true)
+                    }
+                }
+            }
+        }
     }
 
     private fun statusColor(code: Int): Color = when {

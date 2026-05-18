@@ -14,10 +14,29 @@
       }
     ],
     "config": {
-      "variables": [],
+      "variables": [
+        {
+          "key": "username",
+          "value": "user",
+          "enabled": true,
+          "isSecret": false
+        },
+        {
+          "key": "password",
+          "value": "",
+          "enabled": true,
+          "isSecret": true
+        },
+        {
+          "key": "jwt_token",
+          "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJodHRwOi8vc2NoZW1hcy54bWxzb2FwLm9yZy93cy8yMDA1LzA1L2lkZW50aXR5L2NsYWltcy9uYW1lIjoidXNlciIsImh0dHA6Ly9zY2hlbWFzLm1pY3Jvc29mdC5jb20vd3MvMjAwOC8wNi9pZGVudGl0eS9jbGFpbXMvcm9sZSI6InVzZXIiLCJzdWIiOiJ1c2VyIiwianRpIjoiM2E0Zjk4OTUtYmRkZS00MjZmLTgzNjAtYTEyNTA1MzYxMThmIiwiZXhwIjoxNzc4OTIzMjc2LCJpc3MiOiJzb25hcndoYWxlLXRlc3QiLCJhdWQiOiJzb25hcndoYWxlLXRlc3QifQ.cqcEmAnE3o0Qw5tTOmTxuLbnFwFqWWCINiCp6x8hRao",
+          "enabled": true,
+          "isSecret": true
+        }
+      ],
       "auth": {
-        "mode": "INHERIT",
-        "bearerToken": "",
+        "mode": "BEARER",
+        "bearerToken": "{{jwt_token}}",
         "basicUsername": "",
         "basicPassword": "",
         "apiKeyName": "",

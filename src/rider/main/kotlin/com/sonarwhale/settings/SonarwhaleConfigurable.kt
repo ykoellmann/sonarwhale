@@ -12,6 +12,7 @@ import com.intellij.ui.components.JBTextField
 import com.intellij.util.ui.JBUI
 import com.sonarwhale.SonarwhaleStateService
 import com.sonarwhale.gutter.SonarwhaleGutterService
+import com.sonarwhale.model.ResponseOpenMode
 import com.sonarwhale.model.SonarwhaleGeneralSettings
 import com.sonarwhale.service.RouteIndexService
 import com.sonarwhale.toolwindow.SonarwhalePanel
@@ -19,10 +20,12 @@ import java.awt.FlowLayout
 import java.awt.GridBagConstraints
 import java.awt.GridBagLayout
 import java.awt.Insets
+import javax.swing.ButtonGroup
 import javax.swing.JButton
 import javax.swing.JComboBox
 import javax.swing.JComponent
 import javax.swing.JPanel
+import javax.swing.JRadioButton
 import javax.swing.JSpinner
 import javax.swing.SpinnerNumberModel
 
@@ -34,6 +37,14 @@ class SonarwhaleConfigurable(private val project: Project) : Configurable {
     private val autoFormatCheck      = JBCheckBox("Auto-format response body (JSON / XML)")
     private val followRedirectsCheck = JBCheckBox("Follow HTTP redirects")
     private val verifySslCheck       = JBCheckBox("Verify SSL certificates (disable for self-signed certs in dev)")
+
+    private val openModeScratch = JRadioButton("Scratch file (persists between sessions)").also {
+        it.toolTipText = "Opens response in JetBrains scratch file — survives IDE restarts"
+    }
+    private val openModeTemp = JRadioButton("Temporary file (deleted on close)").also {
+        it.toolTipText = "Opens response in a temp file — auto-deleted when you close the tab"
+    }
+    init { ButtonGroup().apply { add(openModeScratch); add(openModeTemp) } }
 
     private data class RefreshOption(val label: String, val seconds: Int) {
         override fun toString() = label
@@ -118,6 +129,12 @@ class SonarwhaleConfigurable(private val project: Project) : Configurable {
         // ── Response ──────────────────────────────────────────────────────────
         addSection("Response")
         addCheck(autoFormatCheck)
+        addRow("Open in editor:", JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).also {
+            it.isOpaque = false
+            it.add(openModeScratch)
+            it.add(JBLabel("   ").also { l -> l.isOpaque = false }) // spacer
+            it.add(openModeTemp)
+        })
 
         // ── Sources ───────────────────────────────────────────────────────────
         addSection("Sources")
@@ -177,6 +194,8 @@ class SonarwhaleConfigurable(private val project: Project) : Configurable {
             ?: refreshOptions[2]
         timeoutSpinner.value             = s.requestTimeoutSeconds
         defaultContentTypeField.text     = s.defaultContentType
+        if (s.responseOpenMode == ResponseOpenMode.TEMP) openModeTemp.isSelected = true
+        else openModeScratch.isSelected = true
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -188,6 +207,7 @@ class SonarwhaleConfigurable(private val project: Project) : Configurable {
         verifySsl                  = verifySslCheck.isSelected,
         autoRefreshIntervalSeconds = (refreshCombo.selectedItem as? RefreshOption)?.seconds ?: 60,
         requestTimeoutSeconds      = (timeoutSpinner.value as? Int) ?: 30,
-        defaultContentType         = defaultContentTypeField.text.trim().ifEmpty { "application/json" }
+        defaultContentType         = defaultContentTypeField.text.trim().ifEmpty { "application/json" },
+        responseOpenMode           = if (openModeTemp.isSelected) ResponseOpenMode.TEMP else ResponseOpenMode.SCRATCH
     )
 }

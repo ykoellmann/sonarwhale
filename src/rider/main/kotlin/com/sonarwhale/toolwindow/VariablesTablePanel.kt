@@ -1,6 +1,7 @@
 package com.sonarwhale.toolwindow
 
 import com.intellij.icons.AllIcons
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBScrollPane
@@ -114,7 +115,10 @@ class VariablesTablePanel(private val project: Project) : JPanel(BorderLayout())
             if (idx !in rows.indices) return
             val entry = rows[idx]
             if (entry.isSecret && entry.key.isNotEmpty()) {
-                SecretStorageService.remove(projectHash, entry.key)
+                val key = entry.key
+                ApplicationManager.getApplication().executeOnPooledThread {
+                    SecretStorageService.remove(projectHash, key)
+                }
             }
             rows.removeAt(idx)
             fireTableRowsDeleted(idx, idx)
@@ -124,14 +128,34 @@ class VariablesTablePanel(private val project: Project) : JPanel(BorderLayout())
             if (row !in rows.indices) return
             val entry = rows[row]
             if (makeSecret && !entry.isSecret) {
-                if (entry.key.isNotEmpty()) SecretStorageService.set(projectHash, entry.key, entry.value)
+                // Update model immediately; write to keychain in background
                 rows[row] = entry.copy(isSecret = true, value = "")
+                fireTableRowsUpdated(row, row)
+                if (entry.key.isNotEmpty()) {
+                    val valueToStore = entry.value
+                    ApplicationManager.getApplication().executeOnPooledThread {
+                        SecretStorageService.set(projectHash, entry.key, valueToStore)
+                    }
+                }
             } else if (!makeSecret && entry.isSecret) {
-                val value = if (entry.key.isNotEmpty()) SecretStorageService.get(projectHash, entry.key) ?: "" else ""
-                if (entry.key.isNotEmpty()) SecretStorageService.remove(projectHash, entry.key)
-                rows[row] = entry.copy(isSecret = false, value = value)
+                if (entry.key.isNotEmpty()) {
+                    // Read from keychain off-EDT, then update model back on EDT
+                    val key = entry.key
+                    ApplicationManager.getApplication().executeOnPooledThread {
+                        val value = SecretStorageService.get(projectHash, key) ?: ""
+                        SecretStorageService.remove(projectHash, key)
+                        ApplicationManager.getApplication().invokeLater {
+                            if (row in rows.indices) {
+                                rows[row] = entry.copy(isSecret = false, value = value)
+                                fireTableRowsUpdated(row, row)
+                            }
+                        }
+                    }
+                } else {
+                    rows[row] = entry.copy(isSecret = false, value = "")
+                    fireTableRowsUpdated(row, row)
+                }
             }
-            fireTableRowsUpdated(row, row)
         }
 
         override fun getRowCount() = rows.size
@@ -157,13 +181,22 @@ class VariablesTablePanel(private val project: Project) : JPanel(BorderLayout())
                     val oldKey = rows[row].key
                     val newKey = value as? String ?: ""
                     if (rows[row].isSecret && oldKey.isNotEmpty() && newKey != oldKey) {
-                        val secret = SecretStorageService.get(projectHash, oldKey) ?: ""
-                        if (newKey.isNotEmpty()) SecretStorageService.set(projectHash, newKey, secret)
-                        SecretStorageService.remove(projectHash, oldKey)
+                        // Migrate secret to new key name — read + write off-EDT
+                        ApplicationManager.getApplication().executeOnPooledThread {
+                            val secret = SecretStorageService.get(projectHash, oldKey) ?: ""
+                            if (newKey.isNotEmpty()) SecretStorageService.set(projectHash, newKey, secret)
+                            SecretStorageService.remove(projectHash, oldKey)
+                        }
                     }
                     var updated = rows[row].copy(key = newKey)
                     if (!updated.isSecret && newKey.matches(SECRET_PATTERN)) {
-                        if (newKey.isNotEmpty()) SecretStorageService.set(projectHash, newKey, updated.value)
+                        // Auto-promote to secret — write off-EDT
+                        val valueToStore = updated.value
+                        if (newKey.isNotEmpty()) {
+                            ApplicationManager.getApplication().executeOnPooledThread {
+                                SecretStorageService.set(projectHash, newKey, valueToStore)
+                            }
+                        }
                         updated = updated.copy(isSecret = true, value = "")
                     }
                     rows[row] = updated
@@ -171,7 +204,12 @@ class VariablesTablePanel(private val project: Project) : JPanel(BorderLayout())
                 2 -> {
                     val newValue = value as? String ?: ""
                     if (rows[row].isSecret) {
-                        if (rows[row].key.isNotEmpty()) SecretStorageService.set(projectHash, rows[row].key, newValue)
+                        val key = rows[row].key
+                        if (key.isNotEmpty()) {
+                            ApplicationManager.getApplication().executeOnPooledThread {
+                                SecretStorageService.set(projectHash, key, newValue)
+                            }
+                        }
                         rows[row] = rows[row].copy(value = "")
                     } else {
                         rows[row] = rows[row].copy(value = newValue)
@@ -245,9 +283,14 @@ class VariablesTablePanel(private val project: Project) : JPanel(BorderLayout())
                 revealed = false
                 passwordField.echoChar = '•'
                 toggleBtn.icon = AllIcons.Actions.Show
-                val stored = if (model.getKey(row).isNotEmpty())
-                    SecretStorageService.get(projectHash, model.getKey(row)) ?: "" else ""
-                passwordField.text = stored
+                passwordField.text = "" // show empty while loading from keychain
+                val key = model.getKey(row)
+                if (key.isNotEmpty()) {
+                    ApplicationManager.getApplication().executeOnPooledThread {
+                        val stored = SecretStorageService.get(projectHash, key) ?: ""
+                        ApplicationManager.getApplication().invokeLater { passwordField.text = stored }
+                    }
+                }
                 wrapper
             } else {
                 textField.text = value as? String ?: ""

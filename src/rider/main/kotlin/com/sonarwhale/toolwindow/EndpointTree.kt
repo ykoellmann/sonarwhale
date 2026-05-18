@@ -14,13 +14,17 @@ import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
+import com.intellij.openapi.util.TextRange
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.ui.ColoredTreeCellRenderer
-import com.intellij.ui.tree.ui.Control
 import com.intellij.ui.JBColor
 import com.intellij.ui.SimpleTextAttributes
+import com.intellij.ui.speedSearch.SpeedSearchSupply
+import com.intellij.ui.speedSearch.SpeedSearchUtil
+import com.intellij.ui.tree.ui.Control
 import com.intellij.ui.treeStructure.Tree
 import com.intellij.util.ui.JBUI
+import java.beans.PropertyChangeListener
 import com.sonarwhale.SonarwhaleStateService
 import com.sonarwhale.gutter.SourceLocationService
 import com.sonarwhale.model.ApiCollection
@@ -80,6 +84,20 @@ class EndpointTree(private val project: Project) : Tree() {
     var onRequestSelected:     ((ApiEndpoint, SavedRequest) -> Unit)? = null
     var onGlobalSelected:      (() -> Unit)?                         = null
     var onCollectionSelected:  ((ApiCollection) -> Unit)?            = null
+    /** Called when the user presses Ctrl+F while the tree is focused. */
+    var onToggleSearch:        (() -> Unit)?                         = null
+    /** Fired after each query change or navigation: (1-based current index, total matches). 0/0 = no search. */
+    var onMatchCountChanged:   ((current: Int, total: Int) -> Unit)? = null
+
+    /** Active search query. Setting it repaints all cells and recomputes the match list. */
+    var searchQuery: String = ""
+        set(value) {
+            field = value
+            repaint()
+            updateSearchMatches()
+        }
+    private var searchMatchNodes: List<DefaultMutableTreeNode> = emptyList()
+    private var currentMatchIdx:  Int                          = -1
 
     private val stateService = SonarwhaleStateService.getInstance(project)
 
@@ -131,9 +149,43 @@ class EndpointTree(private val project: Project) : Tree() {
             }
         })
 
-        // F4 → Jump to Source | Shift+F6 → Rename | Ctrl+D → Duplicate
+        // Install a SpeedSearchSupply that exposes searchQuery to SpeedSearchUtil.
+        // This makes the renderer's applySpeedSearchHighlighting call work without
+        // any floating popup — we drive everything from our own search bar instead.
+        val supply = object : SpeedSearchSupply() {
+            override fun matchingFragments(text: String): Iterable<TextRange>? {
+                val q = searchQuery
+                if (q.isEmpty()) return null
+                val lo = text.lowercase()
+                val lq = q.lowercase()
+                val ranges = mutableListOf<TextRange>()
+                var pos = 0
+                while (true) {
+                    val idx = lo.indexOf(lq, pos)
+                    if (idx < 0) break
+                    ranges.add(TextRange(idx, idx + lq.length))
+                    pos = idx + lq.length
+                }
+                return ranges.takeIf { it.isNotEmpty() }
+            }
+            override fun refreshSelection() {}
+            override fun isPopupActive() = searchQuery.isNotEmpty()
+            override fun getEnteredPrefix() = searchQuery.takeIf { it.isNotEmpty() }
+            override fun addChangeListener(listener: PropertyChangeListener) {}
+            override fun removeChangeListener(listener: PropertyChangeListener) {}
+            override fun findAndSelectElement(searchQuery: String) {}
+        }
+        supply.installSupplyTo(this, false)
+
+        // F4 → Jump to Source | Shift+F6 → Rename | Ctrl+D → Duplicate | Ctrl+F → Toggle Search
         addKeyListener(object : KeyAdapter() {
             override fun keyPressed(e: KeyEvent) {
+                // Ctrl+F: toggle the search/filter bar (no selection required)
+                if (e.keyCode == KeyEvent.VK_F && e.isControlDown) {
+                    onToggleSearch?.invoke()
+                    e.consume()
+                    return
+                }
                 val node = lastSelectedPathComponent as? DefaultMutableTreeNode ?: return
                 when {
                     e.keyCode == KeyEvent.VK_F4 -> {
@@ -405,8 +457,13 @@ class EndpointTree(private val project: Project) : Tree() {
     fun updateEndpoints(endpoints: List<ApiEndpoint>) {
         currentEndpoints = endpoints
         val prevSelection = selectedPathObject()
+        // Snapshot which nodes are expanded *before* we tear down the model.
+        // rowCount == 0 means the tree has never been built yet → expand everything after rebuild.
+        val expandedKeys = if (rowCount > 0) collectExpandedPaths() else null
         rebuildTree()
+        if (expandedKeys == null) expandAllRows() else restoreExpansion(expandedKeys)
         restoreSelection(prevSelection)
+        updateSearchMatches()   // re-highlight after tree rebuild
     }
 
     /** Rebuilds only the request sub-nodes for one endpoint (e.g. after save). */
@@ -476,7 +533,7 @@ class EndpointTree(private val project: Project) : Tree() {
 
         root.add(globalNode)
         model = DefaultTreeModel(root)
-        expandAllRows()
+        // Expansion is handled by the caller (updateEndpoints).
     }
 
     // ── Selection helpers ─────────────────────────────────────────────────────
@@ -495,6 +552,73 @@ class EndpointTree(private val project: Project) : Tree() {
         selectionPath = path
         scrollPathToVisible(path)
         return true
+    }
+
+    /** Expands the currently selected node and all its descendants. */
+    fun expandSelected() {
+        val selected = lastSelectedPathComponent as? DefaultMutableTreeNode ?: return
+        selected.breadthFirstEnumeration().toList()
+            .filterIsInstance<DefaultMutableTreeNode>()
+            .forEach { expandPath(javax.swing.tree.TreePath(it.path)) }
+    }
+
+    /** Collapses every visible row (leaves top-level items collapsed under the invisible root). */
+    fun collapseAll() {
+        for (i in rowCount - 1 downTo 0) collapseRow(i)
+    }
+
+    // ── Search / match navigation ─────────────────────────────────────────────
+
+    /** Selects the next or previous match in the current search result list. */
+    fun navigateMatch(forward: Boolean) {
+        if (searchMatchNodes.isEmpty()) return
+        currentMatchIdx = if (forward) {
+            (currentMatchIdx + 1) % searchMatchNodes.size
+        } else {
+            (currentMatchIdx - 1 + searchMatchNodes.size) % searchMatchNodes.size
+        }
+        selectMatchNode(currentMatchIdx)
+        onMatchCountChanged?.invoke(currentMatchIdx + 1, searchMatchNodes.size)
+    }
+
+    private fun updateSearchMatches() {
+        val root = model?.root as? DefaultMutableTreeNode
+        if (root == null || searchQuery.isEmpty()) {
+            searchMatchNodes = emptyList()
+            currentMatchIdx  = -1
+            onMatchCountChanged?.invoke(0, 0)
+            return
+        }
+        val q = searchQuery.lowercase()
+        searchMatchNodes = root.breadthFirstEnumeration().toList()
+            .filterIsInstance<DefaultMutableTreeNode>()
+            .filter { nodeMatchesQuery(it, q) }
+        if (searchMatchNodes.isEmpty()) {
+            currentMatchIdx = -1
+            onMatchCountChanged?.invoke(0, 0)
+        } else {
+            currentMatchIdx = 0
+            selectMatchNode(0)
+            onMatchCountChanged?.invoke(1, searchMatchNodes.size)
+        }
+    }
+
+    private fun nodeMatchesQuery(node: DefaultMutableTreeNode, query: String): Boolean =
+        when (val obj = node.userObject) {
+            is EndpointNode   -> obj.endpoint.path.lowercase().contains(query)
+                              || obj.endpoint.method.name.lowercase().contains(query)
+                              || obj.endpoint.summary?.lowercase()?.contains(query) == true
+            is ControllerNode -> obj.name.lowercase().contains(query)
+            is CollectionNode -> obj.collection.name.lowercase().contains(query)
+            is RequestNode    -> obj.request.name.lowercase().contains(query)
+            else              -> false
+        }
+
+    private fun selectMatchNode(idx: Int) {
+        val node = searchMatchNodes.getOrNull(idx) ?: return
+        val path = javax.swing.tree.TreePath(node.path)
+        selectionPath = path
+        scrollPathToVisible(path)
     }
 
     private fun findEndpointNode(endpointId: String): DefaultMutableTreeNode? {
@@ -519,14 +643,73 @@ class EndpointTree(private val project: Project) : Tree() {
         return node.userObject
     }
 
-    private fun restoreSelection(prev: Any?) {
-        when (prev) {
-            is EndpointNode -> selectEndpoint(prev.endpoint.id)
-            is RequestNode  -> {
-                val node = findRequestNode(prev.endpoint.id, prev.request.id) ?: return
-                val path = javax.swing.tree.TreePath(node.path)
-                selectionPath = path
+    /**
+     * Returns a stable string identifier for [node]'s full path from the tree root,
+     * using logical IDs rather than row indices.  Returns null for leaf-only node types
+     * (RequestNode, NoResults, …) that can never be expanded.
+     */
+    private fun stablePathKey(node: DefaultMutableTreeNode, root: DefaultMutableTreeNode): String? {
+        val parts = mutableListOf<String>()
+        for (treeNode in node.path) {
+            if (treeNode === root) continue
+            val obj = (treeNode as? DefaultMutableTreeNode)?.userObject ?: return null
+            val part: String = when (obj) {
+                is GlobalNode     -> "global"
+                is CollectionNode -> "col:${obj.collection.id}"
+                is ControllerNode -> "ctrl:${obj.name}"
+                is EndpointNode   -> "ep:${obj.endpoint.id}"
+                else              -> return null   // RequestNode, NoResults, etc.
             }
+            parts.add(part)
+        }
+        return parts.joinToString("|").ifEmpty { null }
+    }
+
+    /** Snapshots the set of currently expanded paths as stable keys. */
+    private fun collectExpandedPaths(): Set<String> {
+        val root = model?.root as? DefaultMutableTreeNode ?: return emptySet()
+        val expanded = mutableSetOf<String>()
+        for (i in 0 until rowCount) {
+            if (!isExpanded(i)) continue
+            val node = getPathForRow(i)?.lastPathComponent as? DefaultMutableTreeNode ?: continue
+            stablePathKey(node, root)?.let { expanded.add(it) }
+        }
+        return expanded
+    }
+
+    /** Expands exactly the nodes whose stable path key appears in [expandedKeys]. */
+    private fun restoreExpansion(expandedKeys: Set<String>) {
+        val root = model?.root as? DefaultMutableTreeNode ?: return
+        fun visit(node: DefaultMutableTreeNode) {
+            val key = stablePathKey(node, root) ?: return
+            if (key in expandedKeys) expandPath(javax.swing.tree.TreePath(node.path))
+            for (i in 0 until node.childCount) {
+                (node.getChildAt(i) as? DefaultMutableTreeNode)?.let { visit(it) }
+            }
+        }
+        for (i in 0 until root.childCount) {
+            (root.getChildAt(i) as? DefaultMutableTreeNode)?.let { visit(it) }
+        }
+    }
+
+    /**
+     * Restores the previously selected node silently (no callbacks) so that
+     * the detail panel and response panel are not cleared on every re-scan.
+     */
+    private fun restoreSelection(prev: Any?) {
+        suppressSelectionCallback = true
+        try {
+            when (prev) {
+                is EndpointNode -> selectEndpoint(prev.endpoint.id)
+                is RequestNode  -> {
+                    val node = findRequestNode(prev.endpoint.id, prev.request.id) ?: return
+                    val path = javax.swing.tree.TreePath(node.path)
+                    selectionPath = path
+                    scrollPathToVisible(path)
+                }
+            }
+        } finally {
+            suppressSelectionCallback = false
         }
     }
 
@@ -559,9 +742,12 @@ internal fun methodColor(method: HttpMethod): Color = when (method) {
 
 // ── Cell renderer ─────────────────────────────────────────────────────────────
 
-private class EndpointTreeCellRenderer(private val project: Project) : ColoredTreeCellRenderer() {
+private class EndpointTreeCellRenderer(
+    private val project: Project
+) : ColoredTreeCellRenderer() {
 
-    private val countAttrs = SimpleTextAttributes(SimpleTextAttributes.STYLE_SMALLER, JBColor(Color(0x88, 0x88, 0x88), Color(0x77, 0x77, 0x77)))
+    private val countAttrs = SimpleTextAttributes(SimpleTextAttributes.STYLE_SMALLER,
+        JBColor(Color(0x88, 0x88, 0x88), Color(0x77, 0x77, 0x77)))
 
     override fun customizeCellRenderer(
         tree: JTree, value: Any?, selected: Boolean,
@@ -592,14 +778,10 @@ private class EndpointTreeCellRenderer(private val project: Project) : ColoredTr
             }
             is RequestNode -> {
                 val isDefault = obj.request.isDefault
-                append(
-                    obj.request.name,
-                    if (isDefault) SimpleTextAttributes(SimpleTextAttributes.STYLE_BOLD, null)
-                    else SimpleTextAttributes.REGULAR_ATTRIBUTES
-                )
-                if (isDefault) {
-                    append("  default", SimpleTextAttributes(SimpleTextAttributes.STYLE_SMALLER, JBColor.GRAY))
-                }
+                val base = if (isDefault) SimpleTextAttributes(SimpleTextAttributes.STYLE_BOLD, null)
+                           else SimpleTextAttributes.REGULAR_ATTRIBUTES
+                append(obj.request.name, base)
+                if (isDefault) append("  default", SimpleTextAttributes(SimpleTextAttributes.STYLE_SMALLER, JBColor.GRAY))
                 icon = null
             }
             is GlobalNode -> {
@@ -611,8 +793,7 @@ private class EndpointTreeCellRenderer(private val project: Project) : ColoredTr
                 val collectionService = CollectionService.getInstance(project)
                 val activeEnvName = collectionService.getActiveEnvironment(col.id)?.name ?: "no env"
                 append(col.name, SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES)
-                append("  $activeEnvName",
-                    SimpleTextAttributes(SimpleTextAttributes.STYLE_PLAIN, JBColor.GRAY))
+                append("  $activeEnvName", SimpleTextAttributes(SimpleTextAttributes.STYLE_PLAIN, JBColor.GRAY))
                 val total = (0 until node.childCount).sumOf { i ->
                     ((node.getChildAt(i) as? DefaultMutableTreeNode)?.userObject as? ControllerNode)?.endpoints?.size ?: 0
                 }
@@ -627,6 +808,6 @@ private class EndpointTreeCellRenderer(private val project: Project) : ColoredTr
             is NoResults -> append("No endpoints found", SimpleTextAttributes(SimpleTextAttributes.STYLE_ITALIC, JBColor.GRAY))
             is String    -> append(obj, SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES)
         }
+        SpeedSearchUtil.applySpeedSearchHighlighting(tree, this, true, selected)
     }
-
 }

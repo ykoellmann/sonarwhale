@@ -106,6 +106,7 @@ class DetailPanel(private val project: Project) : JPanel(BorderLayout()), DataPr
     fun applyGeneralSettings() {
         val s = SonarwhaleStateService.getInstance(project).getGeneralSettings()
         responsePanel.autoFormatResponse = s.autoFormatResponse
+        responsePanel.responseOpenMode = s.responseOpenMode
         requestPanel.setDefaultContentType(s.defaultContentType)
     }
 
