@@ -188,7 +188,7 @@ class DetailPanel(private val project: Project) : JPanel(BorderLayout()), DataPr
         val panel = JPanel(GridBagLayout())
         panel.border = JBUI.Borders.compound(
             JBUI.Borders.customLineBottom(JBColor.border()),
-            JBUI.Borders.empty(6, 12)
+            JBUI.Borders.empty(4, 12)
         )
         val gbc = GridBagConstraints()
         gbc.gridy = 0; gbc.anchor = GridBagConstraints.WEST; gbc.fill = GridBagConstraints.NONE
