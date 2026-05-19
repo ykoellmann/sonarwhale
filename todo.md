@@ -51,3 +51,6 @@
 ## Phase 5 (More Language Scanners)
 - PythonScanner — FastAPI / Flask
 - JavaScanner — Spring Boot
+
+
+Dashboard / Analytics

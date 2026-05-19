@@ -414,8 +414,8 @@ PsiManager.getInstance(project).addPsiTreeChangeListener(listener, disposable)
 - [x] `CSharpScanner` — Referenz-Implementierung (ASP.NET Core)
 
 **Weitere Scanner (noch nicht implementiert):**
-- [ ] `PythonScanner` — FastAPI / Flask (`@app.get(...)`, `@router.post(...)`)
-- [ ] `JavaScanner` — Spring Boot (`@GetMapping`, `@RequestMapping`, `@RestController`)
+- [x] `PythonScanner` — FastAPI / Flask (`@app.get(...)`, `@router.post(...)`)
+- [x] `JavaScanner` — Spring Boot (`@GetMapping`, `@RequestMapping`, `@RestController`)
 
 **Sonstiges:**
 - [ ] Auth für den Swagger-Endpunkt selbst (Header/Token beim Fetch)
