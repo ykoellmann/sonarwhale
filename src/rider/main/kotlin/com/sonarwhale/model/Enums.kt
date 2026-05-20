@@ -1,7 +1,12 @@
 package com.sonarwhale.model
 
 enum class HttpMethod {
-    GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS
+    GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS;
+
+    companion object {
+        fun fromString(name: String): HttpMethod? =
+            entries.firstOrNull { it.name.equals(name, ignoreCase = true) }
+    }
 }
 
 enum class ParameterLocation {

@@ -25,7 +25,7 @@ import com.sonarwhale.model.HttpMethod
  */
 class JavaScanner : LanguageScanner {
 
-    override val fileExtensions: Set<String> = setOf("java")
+    override val fileExtensions: Set<String> = setOf("java", "kt")
 
     // ── Precompiled patterns ──────────────────────────────────────────────────
 
@@ -157,8 +157,7 @@ class JavaScanner : LanguageScanner {
 
         // Extract @GetMapping / @PostMapping / etc.
         for (m in reVerbMapping.findAll(fullText)) {
-            HttpMethod.entries.firstOrNull { it.name.equals(m.groupValues[1], ignoreCase = true) }
-                ?.let { methods += it }
+            HttpMethod.fromString(m.groupValues[1])?.let { methods += it }
             extractPaths(m.groupValues.getOrElse(2) { "" }).forEach { paths += it }
         }
 
@@ -168,8 +167,7 @@ class JavaScanner : LanguageScanner {
                 val args = m.groupValues.getOrElse(1) { "" }
                 extractPaths(args).forEach { paths += it }
                 reRequestMethod.findAll(args).forEach { mv ->
-                    HttpMethod.entries.firstOrNull { it.name.equals(mv.groupValues[1], ignoreCase = true) }
-                        ?.let { methods += it }
+                    HttpMethod.fromString(mv.groupValues[1])?.let { methods += it }
                 }
             }
         }
@@ -212,9 +210,6 @@ class JavaScanner : LanguageScanner {
 
     private fun normalizeParam(path: String): String =
         reSpringParam.replace(path) { "{${it.groupValues[1]}}" }
-
-    private fun normalizeEndpointPath(path: String): String =
-        reSpringParam.replace(path.trimStart('/')) { "{${it.groupValues[1]}}" }.lowercase()
 
     // ── Controller segment detection ──────────────────────────────────────────
 
@@ -295,29 +290,14 @@ class JavaScanner : LanguageScanner {
         prefix: String?,
         candidates: List<ApiEndpoint>
     ): ApiEndpoint? {
-        val normalized = candidates.associateWith { normalizeEndpointPath(it.path) }
-
         if (prefix != null) {
             val fullPath = if (methodPath.isEmpty()) prefix
                           else normalizeParam("$prefix/$methodPath").lowercase()
-            normalized.entries.firstOrNull { (_, n) -> n == fullPath }
-                ?.key?.let { return it }
-            normalized.entries.firstOrNull { (_, n) -> n.endsWith(fullPath) }
-                ?.key?.let { return it }
+            matchCandidates(fullPath, candidates)?.let { return it }
         }
-
         if (methodPath.isNotEmpty()) {
-            val lower = methodPath.lowercase()
-            normalized.entries.firstOrNull { (_, n) -> n == lower }
-                ?.key?.let { return it }
-            normalized.entries.firstOrNull { (_, n) -> n.endsWith(lower) }
-                ?.key?.let { return it }
-            normalized.entries.firstOrNull { (_, n) -> lower.endsWith(n) }
-                ?.key?.let { return it }
-            normalized.entries.firstOrNull { (_, n) -> n.contains(lower) || lower.contains(n) }
-                ?.key?.let { return it }
+            matchCandidates(methodPath.lowercase(), candidates)?.let { return it }
         }
-
         return null
     }
 }

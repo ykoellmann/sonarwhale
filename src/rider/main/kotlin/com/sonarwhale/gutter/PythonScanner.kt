@@ -73,9 +73,7 @@ class PythonScanner : LanguageScanner {
             // ── FastAPI / Flask 2.x @x.get("/path") verb shortcuts ────────────
             val verbMatch = reVerbDecorator.find(line)
             if (verbMatch != null) {
-                val method = HttpMethod.entries.firstOrNull {
-                    it.name.equals(verbMatch.groupValues[1], ignoreCase = true)
-                }
+                val method = HttpMethod.fromString(verbMatch.groupValues[1])
                 if (method != null) {
                     val rawPath = reFirstString.find(line, verbMatch.range.last)
                         ?.groupValues?.get(1)
@@ -152,9 +150,7 @@ class PythonScanner : LanguageScanner {
     private fun extractFlaskMethods(context: String): List<HttpMethod> {
         val listMatch = reMethodsList.find(context) ?: return emptyList()
         return reMethodItem.findAll(listMatch.groupValues[1])
-            .mapNotNull { m ->
-                HttpMethod.entries.firstOrNull { it.name.equals(m.groupValues[1], ignoreCase = true) }
-            }
+            .mapNotNull { HttpMethod.fromString(it.groupValues[1]) }
             .toList()
     }
 
@@ -164,28 +160,14 @@ class PythonScanner : LanguageScanner {
         return reOpenApiParam.replace(afterFlask) { "{${it.groupValues[1]}}" }.trimStart('/')
     }
 
-    private fun normalizeEndpointPath(path: String): String =
-        reOpenApiParam.replace(path.trimStart('/')) { "{${it.groupValues[1]}}" }.lowercase()
-
     private fun matchEndpoint(
         template: String,
         methods: List<HttpMethod>,
         endpoints: List<ApiEndpoint>
     ): ApiEndpoint? {
-        val lowerTemplate = template.lowercase()
         for (method in methods) {
-            val candidates = endpoints.filter { it.method == method }
-            if (candidates.isEmpty()) continue
-            val normalized = candidates.associateWith { normalizeEndpointPath(it.path) }
-
-            normalized.entries.firstOrNull { (_, n) -> n == lowerTemplate }
-                ?.key?.let { return it }
-            normalized.entries.firstOrNull { (_, n) -> n.endsWith(lowerTemplate) }
-                ?.key?.let { return it }
-            normalized.entries.firstOrNull { (_, n) -> lowerTemplate.endsWith(n) }
-                ?.key?.let { return it }
-            normalized.entries.firstOrNull { (_, n) -> n.contains(lowerTemplate) || lowerTemplate.contains(n) }
-                ?.key?.let { return it }
+            matchCandidates(template.lowercase(), endpoints.filter { it.method == method })
+                ?.let { return it }
         }
         return null
     }

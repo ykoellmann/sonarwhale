@@ -219,74 +219,64 @@ Alle Endpoints erscheinen in **einer gemeinsamen Liste**, visuell unterschieden:
 
 ---
 
-## Projektstruktur (Ziel nach Migration)
+## Projektstruktur
 
 ```
 sonarwhale/
 ├── .claude/claude.md                  ← diese Datei
 ├── build.gradle.kts
 ├── plugin.xml
-├── src/main/kotlin/dev/koellmann/sonarwhale/
+├── src/rider/main/kotlin/com/sonarwhale/
 │   ├── model/
-│   │   ├── ApiEndpoint.kt             ← NEU: OpenAPI-Datenmodell (ersetzt altes PSI-Modell)
+│   │   ├── ApiEndpoint.kt             ← OpenAPI-Datenmodell
 │   │   ├── ApiSchema.kt
-│   │   ├── SonarwhaleEnvironment.kt       ← NEU: Environment + EnvironmentSource
-│   │   └── Enums.kt                   ← UPDATE: EndpointSource, EndpointStatus, ParameterLocation
+│   │   ├── SonarwhaleEnvironment.kt   ← Environment + EnvironmentSource
+│   │   ├── SavedRequest.kt            ← benannte Requests pro Endpoint
+│   │   ├── Environment.kt             ← Umgebungsvariablen-Map
+│   │   └── Enums.kt                   ← HttpMethod, ParameterLocation, AuthType, etc.
 │   ├── openapi/
-│   │   ├── OpenApiFetcher.kt          ← NEU: async Fetch/Read, alle drei Optionen
-│   │   ├── OpenApiDiscovery.kt        ← NEU: Auto-Discovery bekannter Pfade
-│   │   └── OpenApiParser.kt           ← NEU: JSON/YAML → List<ApiEndpoint>
+│   │   ├── OpenApiFetcher.kt          ← async Fetch/Read, alle drei Optionen
+│   │   ├── OpenApiDiscovery.kt        ← Auto-Discovery bekannter Pfade
+│   │   └── OpenApiParser.kt           ← JSON/YAML → List<ApiEndpoint>
 │   ├── service/
-│   │   ├── RouteIndexService.kt       ← NEU: Haupt-Service (ersetzt SonarwhaleService)
-│   │   ├── EnvironmentService.kt      ← NEU: Environment-Verwaltung + Persistenz
-│   │   ├── SnapshotService.kt         ← NEU (Phase 3): Diff + Cache-Persistenz
-│   │   └── PsiNavigationBridge.kt     ← NEU: Route-String → PsiElement (Navigation only)
+│   │   ├── RouteIndexService.kt       ← Haupt-Service, VFS-FileListener, Listener-Pattern
+│   │   ├── EnvironmentService.kt      ← Environment-CRUD + Persistenz
+│   │   ├── CollectionService.kt       ← Collection-Verwaltung
+│   │   ├── VariableResolver.kt        ← {{varName}}-Auflösung
+│   │   ├── AuthResolver.kt            ← Auth-Auflösung pro Request
+│   │   ├── SourceLocationService.kt   ← on-demand Scan für Jump-to-Source
+│   │   ├── SonarwhaleStateService.kt  ← SavedRequests + Environments + baseUrl
+│   │   └── SonarwhaleGutterService.kt ← Gutter-Icon Dispatcher
+│   ├── script/
+│   │   ├── ScriptChainResolver.kt     ← Pre/Post Script Chain-Auflösung
+│   │   ├── ScriptEngine.kt            ← Rhino-basierte Script-Ausführung
+│   │   └── SonarwhaleScriptService.kt ← Script-Service
+│   ├── gutter/
+│   │   ├── LanguageScanner.kt         ← Interface + ScanMatch
+│   │   ├── CSharpScanner.kt           ← ASP.NET Core Scanner
+│   │   ├── PythonScanner.kt           ← FastAPI / Flask Scanner
+│   │   └── JavaScanner.kt             ← Spring Boot Scanner
+│   ├── settings/
+│   │   ├── SonarwhaleConfigurable.kt  ← Haupt-Settings
+│   │   ├── SourcesConfigurable.kt     ← Quellen-Konfiguration
+│   │   └── EnvironmentsConfigurable.kt ← Environment-Konfiguration
 │   └── ui/
-│       ├── RouteToolWindowFactory.kt  ← UPDATE: bestehend
-│       ├── EndpointTree.kt            ← UPDATE: auf neues Datenmodell anpassen
-│       ├── DetailPanel.kt             ← UPDATE: bestehend, kleiner Anpassungsbedarf
-│       ├── RequestPanel.kt            ← UPDATE: bestehend, Headers/Body-UI bereits gut
-│       ├── ResponsePanel.kt           ← KEEP: kaum Änderungen nötig
-│       └── EnvironmentSelector.kt     ← NEU: Dropdown + Status-Icon
-└── src/rider/Sonarwhale.Rider/            ← C# (nur PSI-Navigation für C#-Projekte)
-    └── NavigationHelper.cs            ← REDUZIERT: kein Endpoint-Discovery mehr
-```
-
-### Bereits vorhandene Dateien (aktueller Stand):
-
-```
-src/rider/main/kotlin/com/sonarwhale/
-├── model/
-│   ├── ApiEndpoint.kt           ← altes PSI-Modell (muss ersetzt werden)
-│   └── Enums.kt                 ← zum Teil wiederverwendbar
-├── providers/
-│   ├── EndpointProvider.kt      ← ENTFERNEN: PSI-Discovery-Interface
-│   ├── EndpointProviderRegistry.kt ← ENTFERNEN
-│   └── csharp/
-│       └── CSharpEndpointProvider.kt ← ENTFERNEN
-├── toolwindow/
-│   ├── SonarwhaleToolWindowFactory.kt ← KEEP/UPDATE
-│   ├── SonarwhalePanel.kt           ← KEEP/UPDATE
-│   ├── EndpointTree.kt          ← UPDATE: auf neues Modell anpassen
-│   ├── DetailPanel.kt           ← UPDATE: kleinere Anpassungen
-│   ├── RequestPanel.kt          ← KEEP: gut ausgebaut (Params-Table, BodyPanel)
-│   └── ResponsePanel.kt         ← KEEP: EditorTextField, "Open in Editor"
-├── SonarwhaleService.kt             ← ERSETZEN durch RouteIndexService
-├── SonarwhaleStateService.kt        ← KEEP: speichert Saved Requests
-├── SonarwhaleStartupActivity.kt     ← UPDATE: startet OpenApiFetcher statt PSI-Scan
-├── actions/
-│   └── OpenInSonarwhaleAction.kt    ← KEEP: funktioniert über cached endpoints
-└── collection/
-    └── CollectionFormat.kt      ← KEEP: Postman-Export bleibt
-
-src/dotnet/ReSharperPlugin.Sonarwhale/
-├── ControllerVisitor.cs         ← ENTFERNEN: kein PSI-Discovery mehr
-├── MinimalApiVisitor.cs         ← ENTFERNEN
-├── EndpointDetector.cs          ← ENTFERNEN
-├── SonarwhaleHost.cs                ← ENTFERNEN: Rider Protocol für Discovery
-├── SonarwhaleModel.Generated.cs     ← ENTFERNEN: generiertes Protocol-Modell
-├── SonarwhaleDtos.cs                ← ENTFERNEN: PSI-DTOs nicht mehr nötig
-└── ISonarwhaleZone.cs               ← bleibt (falls C# PSI-Navigation noch nötig)
+│       ├── SonarwhaleToolWindowFactory.kt
+│       ├── SonarwhalePanel.kt         ← Toolbar, Suche, Env-Selector
+│       ├── EndpointTree.kt            ← Tags-Gruppierung, REMOVED-Strikethrough
+│       ├── DetailPanel.kt             ← Header mit method/path/tags/summary/auth-Badge
+│       ├── RequestPanel.kt            ← ParamsTable, HeadersTable, BodyPanel, Saved Requests
+│       ├── ResponsePanel.kt           ← EditorTextField, JSON-Highlighting
+│       ├── ConsolePanel.kt            ← Script-Konsole
+│       ├── FolderScriptsPanel.kt      ← Folder-Level Scripts
+│       ├── AuthConfigPanel.kt         ← Auth-Konfiguration
+│       ├── HierarchyConfigPanel.kt    ← Hierarchie-Konfiguration
+│       ├── EnvironmentSettingsPanel.kt
+│       └── SonarwhaleSettingsDialog.kt
+│   ├── actions/
+│   │   └── OpenInSonarwhaleAction.kt
+│   └── collection/
+│       └── CollectionFormat.kt        ← Postman v2.1 Export
 ```
 
 ---
@@ -407,25 +397,57 @@ PsiManager.getInstance(project).addPsiTreeChangeListener(listener, disposable)
 - [x] Jump-to-Source: Endpoint → Controller-Methode (register + navigate)
 - [x] Klick-Aktion: öffnet Tool Window, führt Default-Request aus (oder selektiert Endpoint)
 
-### Phase 5 — Weitere Sprachen & Erweiterungen
+### Phase 5 — Weitere Sprachen ✅ ABGESCHLOSSEN (Teilweise)
 
-**Language Scanner Infrastructure (Grundgerüst) ✅**
+**Language Scanner Infrastructure ✅**
 - [x] `LanguageScanner` Interface — erweiterbar für beliebige Sprachen ohne Änderung am Core
 - [x] `CSharpScanner` — Referenz-Implementierung (ASP.NET Core)
+- [x] `PythonScanner` — FastAPI / Flask (`@app.get(...)`, `@router.post(...)`) + Tests
+- [x] `JavaScanner` — Spring Boot (`@GetMapping`, `@RequestMapping`, `@RestController`) + Tests
 
-**Weitere Scanner (noch nicht implementiert):**
-- [x] `PythonScanner` — FastAPI / Flask (`@app.get(...)`, `@router.post(...)`)
-- [x] `JavaScanner` — Spring Boot (`@GetMapping`, `@RequestMapping`, `@RestController`)
-
-**Sonstiges:**
+**Noch offen:**
 - [ ] Auth für den Swagger-Endpunkt selbst (Header/Token beim Fetch)
 - [ ] Import/Export: Postman Collection Import
 
+### Phase 6 — Auth, Collections & Hierarchy ✅ ABGESCHLOSSEN
+
+- [x] `AuthConfig` — Auth-Konfiguration pro Environment/Collection/Request
+- [x] `CollectionService` — Collection-Verwaltung
+- [x] `VariableResolver` — {{varName}}-Syntax Auflösung
+- [x] `AuthResolver` — Auth-Auflösung pro Request
+- [x] `HierarchyConfigPanel` — Hierarchie-Konfiguration UI
+- [x] `AuthConfigPanel` — Auth-Konfiguration UI
+
+### Phase 7 — Pre/Post Scripts ✅ ABGESCHLOSSEN
+
+- [x] `ScriptChainResolver` — Pre/Post Script Chain-Auflösung
+- [x] `ScriptEngine` — Rhino-basierte JavaScript-Ausführung
+- [x] `SonarwhaleScriptService` — Script-Service
+- [x] `ConsolePanel` — Script-Konsole mit ConsoleEntry/Output
+- [x] `FolderScriptsPanel` — Folder-Level Scripts UI
+- [x] Script-Tab in RequestPanel
+
+### Phase 8 — Scripts Tab & Auth Fixes ✅ ABGESCHLOSSEN
+
+- [x] `disabledLevels` — Script-Level Deaktivierung
+- [x] `AuthConfigPanel` isLoading-Fix
+- [x] `varMap` seeding für Script-Ausführung
+
+### Phase 9 — Settings Refactor ✅ ABGESCHLOSSEN
+
+- [x] `SonarwhaleConfigurable` — Haupt-Settings Entry Point
+- [x] `SourcesConfigurable` — Quellen-Konfiguration
+- [x] `EnvironmentsConfigurable` — Environment-Konfiguration
+- [x] baseUrl Migration zu Environment-Variablen
+
 ---
 
-## Was noch nicht entschieden ist
+## Was noch offen ist
+
+Siehe `todo.md` für die vollständige Liste offener, actionable Items.
+
+### Offene Entscheidungen
 
 - Finaler Name (Kandidaten: Blip, Sonarwhale)
 - Monetarisierungsmodell (Freemium / kostenlos / Marketplace-Paid)
 - Standalone App als langfristiges Ziel (nach Plugin-MVP)
-- Ob PSI-Navigation (Phase 4) überhaupt ins MVP kommt oder erst nach dem OpenAPI-Kern

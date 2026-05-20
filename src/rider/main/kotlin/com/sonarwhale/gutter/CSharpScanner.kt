@@ -197,9 +197,7 @@ class CSharpScanner : LanguageScanner {
                     }
                     reAcceptVerbs.find(text)?.let { m ->
                         reVerbLiteral.findAll(m.groupValues[1]).forEach { v ->
-                            HttpMethod.entries
-                                .firstOrNull { it.name.equals(v.groupValues[1], ignoreCase = true) }
-                                ?.let { methods += it }
+                            HttpMethod.fromString(v.groupValues[1])?.let { methods += it }
                         }
                     }
                     reStringLiteral.findAll(text).forEach { m ->
@@ -300,23 +298,9 @@ class CSharpScanner : LanguageScanner {
     ): ApiEndpoint? {
         if (controllerPrefix != null) {
             val fullPath = normalizeTemplate("$controllerPrefix/$template").lowercase()
-            candidates.firstOrNull { ep ->
-                normalizeTemplate(ep.path.trimStart('/')).lowercase() == fullPath
-            }?.let { return it }
-            candidates.firstOrNull { ep ->
-                normalizeTemplate(ep.path.trimStart('/')).lowercase().endsWith(fullPath)
-            }?.let { return it }
+            matchCandidates(fullPath, candidates)?.let { return it }
         }
-        candidates.firstOrNull { ep ->
-            normalizeTemplate(ep.path.trimStart('/')).lowercase().endsWith(template)
-        }?.let { return it }
-        candidates.firstOrNull { ep ->
-            normalizeTemplate(ep.path.trimStart('/')).lowercase().contains(template)
-        }?.let { return it }
-        candidates.firstOrNull { ep ->
-            template.contains(normalizeTemplate(ep.path.trimStart('/')).lowercase())
-        }?.let { return it }
-        return null
+        return matchCandidates(template, candidates)
     }
 
     private fun matchByPrefix(candidates: List<ApiEndpoint>, controllerPrefix: String?): ApiEndpoint? {

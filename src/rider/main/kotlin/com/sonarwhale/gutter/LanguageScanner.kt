@@ -14,6 +14,24 @@ data class ScanMatch(val endpoint: ApiEndpoint, val line: Int)
  *
  * Implementations must be stateless and pure — no I/O, no side effects.
  */
+/**
+ * Fuzzy endpoint matching cascade shared by all [LanguageScanner] implementations.
+ *
+ * [template] must already be normalized by the caller (language-specific param stripping,
+ * trimStart('/'), lowercase). [candidates] must already be filtered to a single HTTP method.
+ *
+ * Match priority: exact → suffix → reverse-suffix → contains/reverse-contains.
+ */
+fun matchCandidates(template: String, candidates: List<ApiEndpoint>): ApiEndpoint? {
+    if (template.isEmpty() || candidates.isEmpty()) return null
+    fun norm(path: String) = path.trimStart('/').lowercase()
+    val normalized = candidates.associateWith { norm(it.path) }
+    return normalized.entries.firstOrNull { (_, n) -> n == template }?.key
+        ?: normalized.entries.firstOrNull { (_, n) -> n.endsWith(template) }?.key
+        ?: normalized.entries.firstOrNull { (_, n) -> template.endsWith(n) }?.key
+        ?: normalized.entries.firstOrNull { (_, n) -> n.contains(template) || template.contains(n) }?.key
+}
+
 interface LanguageScanner {
 
     /**
