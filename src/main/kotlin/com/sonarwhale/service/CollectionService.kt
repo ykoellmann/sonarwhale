@@ -234,6 +234,7 @@ class CollectionService(private val project: Project) : Disposable {
             }
         }
         obj.add("source", src)
+        obj.add("sourceAuth", gson.toJsonTree(env.sourceAuth))
         return obj
     }
 
@@ -249,10 +250,14 @@ class CollectionService(private val project: Project) : Disposable {
             "staticImport" -> EnvironmentSource.StaticImport(cachedContent = src.get("cachedContent").asString)
             else -> return@runCatching null
         }
+        val sourceAuth = runCatching {
+            gson.fromJson(obj.getAsJsonObject("sourceAuth"), AuthConfig::class.java)
+        }.getOrDefault(AuthConfig(mode = AuthMode.NONE))
         CollectionEnvironment(
             id = obj.get("id").asString,
             name = obj.get("name").asString,
-            source = source
+            source = source,
+            sourceAuth = sourceAuth
         )
     }.getOrNull()
 

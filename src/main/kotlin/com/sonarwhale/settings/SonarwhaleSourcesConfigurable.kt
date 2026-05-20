@@ -65,6 +65,7 @@ class SonarwhaleSourcesConfigurable(private val project: Project) : Configurable
     private val collectionList = JBList(listModel).apply {
         selectionMode = ListSelectionModel.SINGLE_SELECTION
     }
+    private var currentlyLoadedIdx: Int = -1
 
     private val nameField        = JTextField()
     private val radioServer      = JRadioButton("Server URL")
@@ -326,7 +327,8 @@ class SonarwhaleSourcesConfigurable(private val project: Project) : Configurable
     // ── Load / save helpers ───────────────────────────────────────────────────
 
     private fun loadCollection(idx: Int) {
-        val col = collections.getOrNull(idx) ?: run { clearDetail(); return }
+        val col = collections.getOrNull(idx) ?: run { currentlyLoadedIdx = -1; clearDetail(); return }
+        currentlyLoadedIdx = idx
         nameField.text = col.name
         val activeEnv = col.environments.firstOrNull { it.id == col.activeEnvironmentId }
             ?: col.environments.firstOrNull()
@@ -352,7 +354,7 @@ class SonarwhaleSourcesConfigurable(private val project: Project) : Configurable
     }
 
     private fun saveCurrentToCollection() {
-        val idx = collectionList.selectedIndex.takeIf { it >= 0 } ?: return
+        val idx = currentlyLoadedIdx.takeIf { it >= 0 } ?: return
         val col = collections.getOrNull(idx) ?: return
         val name = nameField.text.trim().ifEmpty { col.name }
         val source = buildSourceFromUI()
