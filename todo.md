@@ -12,6 +12,11 @@
 - [ ] Auth für den Swagger-Endpunkt selbst (Header/Token beim Fetch)
 - [ ] Import/Export: Postman Collection Import
 
+## Weitere Language Scanner
+- [ ] **TypeScript/JavaScript — NestJS** — Dekorator-Syntax (`@Controller`, `@Get`, `@Post`, …), strukturell ähnlich zu JavaScanner; Dateierweiterungen `ts`, `js`
+- [ ] **TypeScript/JavaScript — Express** — `router.get('/path', ...)` / `app.post(...)`, kein Decorator-Muster, Regex-basiert; Dateierweiterungen `ts`, `js` (gemeinsam mit NestJS-Scanner oder eigene Klasse)
+- [ ] **Go — Gin/Echo** — `r.GET("/path", handler)` / `e.GET("/path", handler)`; Dateierweiterung `go`
+
 ## Freemium Model (Foundation)
 
 ### Silas ist Hier
