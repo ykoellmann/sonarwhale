@@ -1,0 +1,12 @@
+<idea-plugin>
+  <!--
+    Wird nur geladen wenn das JavaScript-Plugin vorhanden ist.
+    Aktiviert den nativen Node.js-Debugger für Sonarwhale pre/post-Scripts.
+
+    JavaScriptDebugger enthält NodeJSDebuggableConfiguration + NodeDebugProgramRunnerKt
+    (Paket com.jetbrains.nodeJs.*) und ist immer zusammen mit dem JavaScript-Plugin gebündelt
+    (Rider, IntelliJ IDEA Ultimate). Der NodeDebugProgramRunner erkennt RunProfiles die
+    NodeJSDebuggableConfiguration implementieren automatisch — kein manuelles Runner-Lookup nötig.
+  -->
+
+</idea-plugin>

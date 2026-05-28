@@ -4,12 +4,26 @@
     "name": "Test",
     "environments": [
       {
-        "id": "b406e1ba-bedb-494f-8fbe-4bad458fea5f",
+        "id": "518b539c-e425-4c57-8bc1-3e2e2abba2e6",
         "name": "default",
         "source": {
           "type": "serverUrl",
           "host": "http://localhost",
           "port": 5245
+        },
+        "sourceAuth": {
+          "mode": "NONE",
+          "bearerToken": "",
+          "basicUsername": "",
+          "basicPassword": "",
+          "apiKeyName": "",
+          "apiKeyValue": "",
+          "apiKeyLocation": "HEADER",
+          "oauthTokenUrl": "",
+          "oauthClientId": "",
+          "oauthClientSecret": "",
+          "oauthScope": "",
+          "oauthGrantType": "client_credentials"
         }
       }
     ],

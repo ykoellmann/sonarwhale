@@ -77,10 +77,25 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
         font = Font(Font.MONOSPACED, Font.PLAIN, 12)
         toolTipText = "Full URL computed from base + route + parameters"
     }
-    private val sendButton = JButton("Send").apply { font = font.deriveFont(Font.BOLD) }
+    private val sendButton  = JButton("Send").apply { font = font.deriveFont(Font.BOLD) }
     private val saveButton = JButton("Save").apply {
         font = font.deriveFont(11f)
         toolTipText = "Save current headers, body & param values"
+    }
+
+    /**
+     * Breakpoints gemutet = true → normaler Send (kein Debugger).
+     * Breakpoints aktiv = false → Send läuft im nativen JS-Debugger.
+     * Startzustand: gemuted (Toggle aus = Breakpoints aktiv = Debug an wäre verwirrend).
+     * Logik identisch zu JetBrains MuteBreakpoints: Toggle AN = gemuted = kein Break.
+     */
+    private var breakpointsMuted: Boolean = false
+
+    fun setDebugMode(muted: Boolean) {
+        breakpointsMuted = muted
+        sendButton.toolTipText = if (!muted)
+            "Send (breakpoints active — scripts run in native JS debugger)"
+        else null
     }
 
     // Auth state
@@ -152,8 +167,10 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
         add(buildTopBar(), BorderLayout.NORTH)
         add(tabs, BorderLayout.CENTER)
 
-        sendButton.addActionListener { sendRequest() }
-        saveButton.addActionListener { createNewRequest() }
+        // Toggle AN = Breakpoints gemuted = normaler Send
+        // Toggle AUS = Breakpoints aktiv = Debug-Send
+        sendButton.addActionListener  { if (breakpointsMuted) sendRequest() else debugSendRequest() }
+        saveButton.addActionListener  { createNewRequest() }
         setDefaultButton.addActionListener { setAsDefault() }
         paramsTable.addChangeListener { updateComputedUrl(); autoSave() }
         headersTable.addChangeListener { autoSave() }
@@ -358,7 +375,7 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
 
     fun setPreviewMode(preview: Boolean) {
         previewMode = preview
-        sendButton.isVisible = !preview
+        sendButton.isVisible  = !preview
         setDefaultButton.isVisible = !preview
         saveButton.isVisible = preview
         saveButton.text = "New Request"
@@ -718,6 +735,197 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
                     onNextResponse?.also { it(0, describeError(e), 0, ""); onNextResponse = null }
                     onTestResultsReceived?.invoke(emptyList())
                     onConsoleReceived?.invoke(consoleOutput.entries)
+                }
+            }
+        }.execute()
+    }
+
+    /**
+     * "Debug Send" — same as sendRequest() but runs pre/post scripts via Node.js with
+     * --inspect-brk so the IDE's native JavaScript debugger activates on any breakpoint.
+     * Falls back to a notification if Node.js is not available.
+     */
+    private fun debugSendRequest() {
+        val endpoint = currentEndpoint ?: return
+        val rawUrl   = computedUrlField.text.trim()
+        if (rawUrl.isEmpty()) return
+
+        if (!com.intellij.javascript.nodejs.interpreter.NodeJsInterpreterManager.getInstance(project).isInterpreterAvailable) {
+            com.intellij.notification.NotificationGroupManager.getInstance()
+                .getNotificationGroup("Sonarwhale")
+                .createNotification(
+                    "Node.js not configured",
+                    "Configure a Node.js interpreter under <b>Settings → Languages &amp; Frameworks → Node.js</b> to enable script debugging.",
+                    com.intellij.notification.NotificationType.WARNING
+                )
+                .addAction(com.intellij.notification.NotificationAction.createSimple("Open Settings") {
+                    com.intellij.openapi.options.ShowSettingsUtil.getInstance()
+                        .showSettingsDialog(project, "Node.js")
+                })
+                .notify(project)
+            return
+        }
+
+        saveRequest()
+        sendButton.isEnabled  = false
+
+        val colId       = RouteIndexService.getInstance(project).getCollectionId(endpoint.id) ?: ""
+        val varResolver = VariableResolver.getInstance(project)
+        val authResolver = AuthResolver.getInstance(project)
+        val varMap      = varResolver.buildMap(colId, endpoint.id, currentRequest?.id)
+        val effectiveAuth = authResolver.resolve(colId, endpoint.id, currentRequest?.id)
+        val resolvedUrl = varResolver.resolve(rawUrl, varMap)
+
+        val headerRows = headersTable.getRows()
+            .filter { it.enabled && it.key.isNotEmpty() }
+            .map { it.copy(value = varResolver.resolve(it.value, varMap)) }
+        val bodyContent = bodyPanel.getContent().let { bc ->
+            when (bc) {
+                is BodyContent.Raw      -> bc.copy(text = varResolver.resolve(bc.text, varMap))
+                is BodyContent.FormData -> bc.copy(rows = bc.rows.map { r -> r.copy(value = varResolver.resolve(r.value, varMap)) })
+                else -> bc
+            }
+        }
+
+        val savedRequest = currentRequest ?: SavedRequest(name = currentRequestName)
+        val epCfg  = stateService.getEndpointConfig(endpoint.id)
+        val reqCfg = currentRequest?.config ?: HierarchyConfig()
+        val effectiveDisabledPre  = epCfg.config.disabledPreLevels  + reqCfg.disabledPreLevels
+        val effectiveDisabledPost = epCfg.config.disabledPostLevels + reqCfg.disabledPostLevels
+
+        val scriptService = SonarwhaleScriptService.getInstance(project)
+        val consoleOutput = ConsoleOutput()
+
+        object : SwingWorker<Pair<Triple<Int, String, Long>, String>, Unit>() {
+            private var testResults: List<com.sonarwhale.script.TestResult> = emptyList()
+
+            override fun doInBackground(): Pair<Triple<Int, String, Long>, String> {
+                // ── Build initial context ─────────────────────────────────────
+                val initialHeaders = headerRows.associate { it.key.trim() to it.value.trim() }.toMutableMap()
+                val initialBody    = when (val bc = bodyContent) {
+                    is BodyContent.Raw -> bc.text
+                    else -> ""
+                }
+                val tag  = endpoint.tags.firstOrNull() ?: "Default"
+                val disabledPreLevels = effectiveDisabledPre
+                    .mapNotNull { runCatching { com.sonarwhale.script.ScriptLevel.valueOf(it) }.getOrNull() }
+                    .toSet()
+                val disabledPostLevels = effectiveDisabledPost
+                    .mapNotNull { runCatching { com.sonarwhale.script.ScriptLevel.valueOf(it) }.getOrNull() }
+                    .toSet()
+
+                val ctx = com.sonarwhale.script.ScriptContext(
+                    envSnapshot = varMap.toMutableMap(),
+                    request     = com.sonarwhale.script.MutableRequestContext(
+                        url     = resolvedUrl,
+                        method  = endpoint.method.name,
+                        headers = initialHeaders,
+                        body    = initialBody
+                    )
+                )
+
+                // ── Pre-scripts via Node.js with IDE debugger ────────────────
+                // Each script is launched with --inspect-brk on a fresh port.
+                // We use a CountDownLatch to block the background thread until the script finishes.
+                val resolver  = scriptService.getScriptsResolver()
+                val preLevels = resolver.resolvePreLevels(tag, endpoint.method.name, endpoint.path, savedRequest.name, colId, disabledPreLevels)
+                runDebugScripts(preLevels, ctx, consoleOutput)
+
+                val postScriptVarMap = varMap.toMutableMap().also { it.putAll(ctx.envSnapshot) }
+
+                // ── HTTP Request ─────────────────────────────────────────────
+                val generalSettings = stateService.getGeneralSettings()
+                val client  = buildHttpClient(generalSettings)
+                val builder = HttpRequest.newBuilder()
+                    .uri(URI.create(ctx.request.url))
+                    .timeout(Duration.ofSeconds(generalSettings.requestTimeoutSeconds.toLong()))
+
+                val authUrlForBuilder = StringBuilder(ctx.request.url)
+                authResolver.applyToRequest(builder, authUrlForBuilder, effectiveAuth, postScriptVarMap, varResolver)
+                ctx.request.headers.forEach { (k, v) -> runCatching { builder.header(k, v) } }
+                val hasContentType = ctx.request.headers.keys.any { it.equals("content-type", ignoreCase = true) }
+                applyBodyToRequest(builder, bodyContent, endpoint, ctx.request.body, hasContentType)
+
+                val start    = System.currentTimeMillis()
+                val response = try {
+                    client.send(builder.build(), HttpResponse.BodyHandlers.ofString())
+                } catch (e: Exception) {
+                    val duration = System.currentTimeMillis() - start
+                    consoleOutput.http(endpoint.method.name, ctx.request.url, 0, duration,
+                        ctx.request.headers, ctx.request.body.ifEmpty { null }, emptyMap(), "", e.message)
+                    throw e
+                }
+                val duration = System.currentTimeMillis() - start
+                val responseHeaders = response.headers().map().mapValues { (_, vs) -> vs.firstOrNull() ?: "" }
+
+                consoleOutput.requestStart(endpoint.method.name, endpoint.path)
+                consoleOutput.http(endpoint.method.name, ctx.request.url, response.statusCode(), duration,
+                    ctx.request.headers, ctx.request.body.ifEmpty { null }, responseHeaders, response.body(), null)
+
+                // ── Post-scripts via Node.js with IDE debugger ───────────────
+                val postCtx = com.sonarwhale.script.ScriptContext(
+                    envSnapshot = ctx.envSnapshot,
+                    request     = ctx.request,
+                    response    = com.sonarwhale.script.ResponseContext(response.statusCode(), responseHeaders, response.body())
+                )
+                val postLevels = resolver.resolvePostLevels(tag, endpoint.method.name, endpoint.path, savedRequest.name, colId, disabledPostLevels)
+                runDebugScripts(postLevels, postCtx, consoleOutput)
+
+                scriptService.flushEnvChangesPublic(postCtx.envSnapshot, varMap, colId)
+                testResults = postCtx.testResults
+
+                val contentType = response.headers().firstValue("content-type").orElse("") ?: ""
+                return Triple(response.statusCode(), response.body(), duration) to contentType
+            }
+
+            override fun done() {
+                sendButton.isEnabled  = true
+                runCatching {
+                    val result      = get()
+                    val (status, body, duration) = result.first
+                    val contentType = result.second
+                    onResponseReceived?.invoke(status, body, duration, contentType)
+                    onNextResponse?.also { it(status, body, duration, contentType); onNextResponse = null }
+                    onTestResultsReceived?.invoke(testResults)
+                    onConsoleReceived?.invoke(consoleOutput.entries)
+                }.onFailure { e ->
+                    onResponseReceived?.invoke(0, describeError(e), 0, "")
+                    onNextResponse?.also { it(0, describeError(e), 0, ""); onNextResponse = null }
+                    onTestResultsReceived?.invoke(emptyList())
+                    onConsoleReceived?.invoke(consoleOutput.entries)
+                }
+            }
+
+            /**
+             * Führt jeden Script-Level sequenziell im IDE-Debugger aus.
+             * ScriptDebugLauncher startet Node.js via NodeCommandLineUtil mit --inspect-brk,
+             * die IDE attached den JS-Debugger automatisch.
+             * Ein CountDownLatch blockiert den Background-Thread bis das Skript fertig ist.
+             */
+            private fun runDebugScripts(
+                levels:  List<Pair<com.sonarwhale.script.ScriptLevel, com.sonarwhale.script.ScriptFile?>>,
+                ctx:     com.sonarwhale.script.ScriptContext,
+                console: ConsoleOutput
+            ) {
+                for ((_, scriptFile) in levels) {
+                    if (scriptFile == null) continue
+                    val latch = java.util.concurrent.CountDownLatch(1)
+
+                    // ScriptDebugLauncher muss auf dem EDT aufgerufen werden.
+                    // onFinished wird ebenfalls auf dem EDT aufgerufen wenn der Prozess endet.
+                    com.intellij.openapi.application.ApplicationManager.getApplication().invokeLater {
+                        com.sonarwhale.script.ScriptDebugLauncher.launch(
+                            project    = project,
+                            scriptFile = scriptFile,
+                            context    = ctx,
+                            console    = console,
+                            onFinished = { latch.countDown() }
+                        )
+                    }
+
+                    // Background-Thread wartet bis die Debug-Session abgeschlossen ist.
+                    // Env- und Request-Mutationen wurden in onFinished bereits in ctx geschrieben.
+                    latch.await(300L, java.util.concurrent.TimeUnit.SECONDS)
                 }
             }
         }.execute()

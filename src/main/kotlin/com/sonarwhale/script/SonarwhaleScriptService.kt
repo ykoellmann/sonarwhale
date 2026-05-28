@@ -221,6 +221,19 @@ class SonarwhaleScriptService(private val project: Project) {
 
     fun getScriptsRoot(): Path = scriptsRoot()
 
+    /** Exposes the resolver for direct use (e.g. from the Node.js debug flow in RequestPanel). */
+    fun getScriptsResolver(): ScriptChainResolver = resolver
+
+    /**
+     * Public wrapper for flushing env changes back to the collection.
+     * Used by the Node.js debug flow which manages its own script execution loop.
+     */
+    fun flushEnvChangesPublic(
+        snapshot: MutableMap<String, String>,
+        originalVarMap: Map<String, String>,
+        collectionId: String
+    ) = flushEnvChanges(snapshot, originalVarMap, collectionId)
+
     private fun scriptsRoot(): Path =
         Path.of(project.basePath ?: ".").resolve(".sonarwhale").resolve("scripts")
 

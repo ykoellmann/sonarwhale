@@ -7,6 +7,15 @@
 
   <depends>com.intellij.modules.platform</depends>
 
+  <!--
+    Optional: JavaScript-Plugin aktiviert den "Debug Send"-Button.
+    In Rider und IntelliJ IDEA Ultimate immer vorhanden.
+    In IDEs ohne JavaScript-Plugin (z.B. PyCharm Community) wird der Button
+    ausgeblendet — der Rest des Plugins funktioniert normal via Rhino.
+  -->
+  <depends optional="true" config-file="sonarwhale-withNodeJs.xml">JavaScript</depends>
+
+
   <description>
 <![CDATA[
 <p><b>Sonarwhale</b> reads your API endpoints from OpenAPI/Swagger sources and makes them testable directly inside Rider.</p>

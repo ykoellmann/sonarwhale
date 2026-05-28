@@ -99,22 +99,50 @@ class SonarwhalePanel(private val project: Project) : JPanel(BorderLayout()) {
     init {
         val service = RouteIndexService.getInstance(project)
 
-        val settingsBtn = JButton(AllIcons.General.Settings).apply {
-            isBorderPainted     = false
-            isContentAreaFilled = false
-            toolTipText         = "Sonarwhale Settings"
-            addActionListener {
+        // ── Rechte Toolbar: Debug-Toggle + Settings ────────────────────────────
+        // Beide als ToggleAction/AnAction in einer ActionToolbar — damit bekommen
+        // sie automatisch das korrekte JetBrains-Styling (grauer Hintergrund wenn
+        // aktiv, korrektes Hover-Verhalten, Icon-Rendering wie MuteBreakpoints).
+        val rightGroup = DefaultActionGroup()
+
+        var debugModeActive = false
+        rightGroup.add(object : ToggleAction(
+            "Debug Mode",
+            "When active, Send runs scripts in the native JS debugger",
+            AllIcons.Debugger.MuteBreakpoints
+        ) {
+            override fun isSelected(e: AnActionEvent): Boolean = debugModeActive
+            override fun setSelected(e: AnActionEvent, state: Boolean) {
+                debugModeActive = state
+                detailPanel.requestPanel.setDebugMode(state)
+            }
+            override fun getActionUpdateThread() =
+                com.intellij.openapi.actionSystem.ActionUpdateThread.EDT
+        })
+
+        rightGroup.add(object : AnAction(
+            "Sonarwhale Settings",
+            "Open Sonarwhale settings",
+            AllIcons.General.Settings
+        ) {
+            override fun actionPerformed(e: AnActionEvent) {
                 ShowSettingsUtil.getInstance().showSettingsDialog(project, SonarwhaleConfigurable::class.java)
             }
-        }
+            override fun getActionUpdateThread() =
+                com.intellij.openapi.actionSystem.ActionUpdateThread.EDT
+        })
+
+        val rightToolbar = ActionManager.getInstance()
+            .createActionToolbar("Sonarwhale.RightToolbar", rightGroup, true)
+        rightToolbar.targetComponent = this
 
         val topBar = JPanel(BorderLayout(4, 0))
         topBar.border = JBUI.Borders.compound(
             JBUI.Borders.customLineBottom(JBColor.border()),
             JBUI.Borders.empty(4, 4)
         )
-        topBar.add(buildToolbar().component, BorderLayout.WEST)
-        topBar.add(settingsBtn,              BorderLayout.EAST)
+        topBar.add(buildToolbar().component,  BorderLayout.WEST)
+        topBar.add(rightToolbar.component,    BorderLayout.EAST)
 
         // topBar (always visible) + collapsible search bar stacked in NORTH
         val leftTop = JPanel(BorderLayout())

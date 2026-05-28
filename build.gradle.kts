@@ -80,10 +80,17 @@ dependencies {
     intellijPlatform {
         rider(providers.gradleProperty("ProductVersion"))
         jetbrainsRuntime()
+        // JavaScript plugin — bundled in Rider und IntelliJ IDEA Ultimate.
+        // Stellt NodeDebugRunConfiguration, NodeDebuggableRunProfileState,
+        // NodeCommandLineUtil und CommandLineDebugConfigurator bereit.
+        // NodeDebugProgramRunner.canRun() prüft: executor == "Debug" && profile instanceof NodeDebugRunConfiguration
+        // — daher reicht dieses eine Plugin, kein JavaScriptDebugger-Modul nötig.
+        // Optional in plugin.xml deklariert; Debug-Button wird via isNodeAvailable() ausgeblendet.
+        bundledPlugin("JavaScript")
     }
     implementation("org.mozilla:rhino:1.7.15")
+    implementation("com.google.code.gson:gson:2.11.0")
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.3")
-    testImplementation("com.google.code.gson:gson:2.11.0")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
