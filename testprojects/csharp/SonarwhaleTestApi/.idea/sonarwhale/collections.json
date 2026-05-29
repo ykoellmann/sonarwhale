@@ -4,7 +4,7 @@
     "name": "Test",
     "environments": [
       {
-        "id": "518b539c-e425-4c57-8bc1-3e2e2abba2e6",
+        "id": "1da37c82-fa21-4cd1-a8e1-7490998ba7cf",
         "name": "default",
         "source": {
           "type": "serverUrl",
@@ -43,7 +43,7 @@
         },
         {
           "key": "jwt_token",
-          "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJodHRwOi8vc2NoZW1hcy54bWxzb2FwLm9yZy93cy8yMDA1LzA1L2lkZW50aXR5L2NsYWltcy9uYW1lIjoidXNlciIsImh0dHA6Ly9zY2hlbWFzLm1pY3Jvc29mdC5jb20vd3MvMjAwOC8wNi9pZGVudGl0eS9jbGFpbXMvcm9sZSI6InVzZXIiLCJzdWIiOiJ1c2VyIiwianRpIjoiM2E0Zjk4OTUtYmRkZS00MjZmLTgzNjAtYTEyNTA1MzYxMThmIiwiZXhwIjoxNzc4OTIzMjc2LCJpc3MiOiJzb25hcndoYWxlLXRlc3QiLCJhdWQiOiJzb25hcndoYWxlLXRlc3QifQ.cqcEmAnE3o0Qw5tTOmTxuLbnFwFqWWCINiCp6x8hRao",
+          "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJodHRwOi8vc2NoZW1hcy54bWxzb2FwLm9yZy93cy8yMDA1LzA1L2lkZW50aXR5L2NsYWltcy9uYW1lIjoidXNlciIsImh0dHA6Ly9zY2hlbWFzLm1pY3Jvc29mdC5jb20vd3MvMjAwOC8wNi9pZGVudGl0eS9jbGFpbXMvcm9sZSI6InVzZXIiLCJzdWIiOiJ1c2VyIiwianRpIjoiMjI2MTAwMmItMjYxYy00OGFkLWEwOGQtMWI2OTY4MTQyOTYxIiwiZXhwIjoxNzc5MjIxODUwLCJpc3MiOiJzb25hcndoYWxlLXRlc3QiLCJhdWQiOiJzb25hcndoYWxlLXRlc3QifQ.Ems8qpD2Yvi1m9UsmdxfvdYRS_1-GGr5iIEQ45HRDP8",
           "enabled": true,
           "isSecret": true
         }

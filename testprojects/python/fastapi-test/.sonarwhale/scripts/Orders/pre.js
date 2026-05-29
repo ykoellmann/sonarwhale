@@ -1,4 +1,3 @@
-/// <reference path="../sw.d.ts" />
 // Orders tag pre-script — ensures a valid, non-expired JWT is attached to every request
 
 function isTokenValid(token) {
@@ -7,8 +6,11 @@ function isTokenValid(token) {
         if (parts.length !== 3) return false;
         var payload = parts[1].replace(/-/g, '+').replace(/_/g, '/');
         while (payload.length % 4 !== 0) payload += '=';
-        var decoded = java.util.Base64.getDecoder().decode(payload);
-        var claims = JSON.parse(new java.lang.String(decoded, 'UTF-8'));
+        var claims = JSON.parse(
+            typeof Buffer !== 'undefined'
+                ? Buffer.from(payload, 'base64').toString('utf8')
+                : String(new java.lang.String(java.util.Base64.getDecoder().decode(payload), 'UTF-8'))
+        );
         if (!claims.exp) return true;
         return claims.exp > Math.floor(Date.now() / 1000) + 30;
     } catch (e) {

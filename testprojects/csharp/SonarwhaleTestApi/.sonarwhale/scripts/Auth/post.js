@@ -1,4 +1,3 @@
-/// <reference path="../sw.d.ts" />
 // Auth tag post-script — captures JWT token after a successful login
 
 if (sw.response.status === 200) {

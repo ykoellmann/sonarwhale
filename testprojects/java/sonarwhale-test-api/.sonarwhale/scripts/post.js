@@ -1,4 +1,3 @@
-/// <reference path="sw.d.ts" />
 // Global post-script — runs after every request
 
 var s = sw.response.status;

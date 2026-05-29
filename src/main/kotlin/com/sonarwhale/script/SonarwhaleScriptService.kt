@@ -148,20 +148,11 @@ class SonarwhaleScriptService(private val project: Project) {
         scriptPath.parent.createDirectories()
         ensureSwDts()
         if (!scriptPath.exists()) {
-            val depth = when (level) {
-                ScriptLevel.GLOBAL      -> 0
-                ScriptLevel.COLLECTION  -> 2
-                ScriptLevel.TAG         -> 1
-                ScriptLevel.ENDPOINT    -> 2
-                ScriptLevel.REQUEST     -> 3
-            }
-            val refPath = "../".repeat(depth) + "sw.d.ts"
-            val header = "/// <reference path=\"$refPath\" />\n"
             val comment = when (phase) {
                 ScriptPhase.PRE  -> "// Pre-script: runs before the HTTP request\n// Available: sw.env, sw.request, sw.http\n\n"
                 ScriptPhase.POST -> "// Post-script: runs after the HTTP response\n// Available: sw.env, sw.request, sw.response, sw.http, sw.test, sw.expect\n\n"
             }
-            scriptPath.writeText(header + comment)
+            scriptPath.writeText(comment)
         }
         return scriptPath
     }

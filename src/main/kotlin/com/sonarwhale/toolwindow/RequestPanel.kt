@@ -502,23 +502,24 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
         val endpoint = currentEndpoint ?: return
         val existingNames = stateService.getRequests(endpoint.id).map { it.name }.toSet()
 
+        var suggestion = ""
         var inputName: String? = null
         while (inputName == null) {
-            val input = javax.swing.JOptionPane.showInputDialog(
-                this,
-                "Request name:",
-                "New Request",
-                javax.swing.JOptionPane.PLAIN_MESSAGE
-            )?.trim()
+            val input = com.intellij.openapi.ui.Messages.showInputDialog(
+                project, "Request name:", "New Request", null, suggestion, null
+            )?.trim() ?: return
             when {
-                input == null -> return
-                input.isEmpty() -> javax.swing.JOptionPane.showMessageDialog(
-                    this, "Name cannot be empty.", "Invalid Name", javax.swing.JOptionPane.WARNING_MESSAGE
+                input.isEmpty() -> com.intellij.openapi.ui.Messages.showWarningDialog(
+                    project, "Name cannot be empty.", "Invalid Name"
                 )
-                input in existingNames -> javax.swing.JOptionPane.showMessageDialog(
-                    this, "A request named \"$input\" already exists for this endpoint.",
-                    "Duplicate Name", javax.swing.JOptionPane.WARNING_MESSAGE
-                )
+                input in existingNames -> {
+                    com.intellij.openapi.ui.Messages.showWarningDialog(
+                        project,
+                        "A request named \"$input\" already exists for this endpoint.",
+                        "Duplicate Name"
+                    )
+                    suggestion = input
+                }
                 else -> inputName = input
             }
         }
@@ -745,10 +746,20 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
      * --inspect-brk so the IDE's native JavaScript debugger activates on any breakpoint.
      * Falls back to a notification if Node.js is not available.
      */
+    private fun hasAnyEnabledJsBreakpoint(): Boolean = runCatching {
+        com.intellij.xdebugger.XDebuggerManager.getInstance(project).breakpointManager.allBreakpoints
+            .any { bp -> bp.isEnabled && "javascript" in bp.type.javaClass.name.lowercase() }
+    }.getOrDefault(true)
+
     private fun debugSendRequest() {
         val endpoint = currentEndpoint ?: return
         val rawUrl   = computedUrlField.text.trim()
         if (rawUrl.isEmpty()) return
+
+        if (!hasAnyEnabledJsBreakpoint()) {
+            sendRequest()
+            return
+        }
 
         if (!com.intellij.javascript.nodejs.interpreter.NodeJsInterpreterManager.getInstance(project).isInterpreterAvailable) {
             com.intellij.notification.NotificationGroupManager.getInstance()

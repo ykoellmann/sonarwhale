@@ -258,25 +258,46 @@ class EndpointTree(private val project: Project) : Tree() {
         level: ScriptLevel,
         tag: String? = null,
         endpoint: ApiEndpoint? = null,
-        request: SavedRequest? = null
+        request: SavedRequest? = null,
+        collectionId: String = ""
     ) {
         val label = level.name.lowercase().replaceFirstChar { it.uppercase() }
         group.add(object : AnAction("Create Pre-Script ($label)", "", AllIcons.Actions.Edit) {
             override fun actionPerformed(e: AnActionEvent) {
-                openOrCreateScriptInBackground(ScriptPhase.PRE, level, tag, endpoint, request)
+                openOrCreateScriptInBackground(ScriptPhase.PRE, level, tag, endpoint, request, collectionId)
             }
         })
         group.add(object : AnAction("Create Post-Script ($label)", "", AllIcons.Actions.Edit) {
             override fun actionPerformed(e: AnActionEvent) {
-                openOrCreateScriptInBackground(ScriptPhase.POST, level, tag, endpoint, request)
+                openOrCreateScriptInBackground(ScriptPhase.POST, level, tag, endpoint, request, collectionId)
             }
         })
     }
 
     private fun performRename(endpoint: ApiEndpoint, request: SavedRequest) {
-        val newName = Messages.showInputDialog(
-            project, "Request name:", "Rename Request", null, request.name, null
-        )?.trim()?.takeIf { it.isNotBlank() } ?: return
+        val existingNames = stateService.getRequests(endpoint.id)
+            .filter { it.id != request.id }
+            .map { it.name }
+            .toSet()
+
+        var suggestion = request.name
+        var newName: String? = null
+        while (newName == null) {
+            val input = Messages.showInputDialog(
+                project, "Request name:", "Rename Request", null, suggestion, null
+            )?.trim()?.takeIf { it.isNotBlank() } ?: return
+            if (input in existingNames) {
+                Messages.showWarningDialog(
+                    project,
+                    "A request named \"$input\" already exists for this endpoint.",
+                    "Duplicate Name"
+                )
+                suggestion = input
+            } else {
+                newName = input
+            }
+        }
+
         stateService.upsertRequest(endpoint.id, request.copy(name = newName))
         refreshRequests(endpoint.id)
         SwingUtilities.invokeLater { selectRequest(endpoint.id, request.id) }
@@ -305,13 +326,14 @@ class EndpointTree(private val project: Project) : Tree() {
         level: ScriptLevel,
         tag: String? = null,
         endpoint: ApiEndpoint? = null,
-        request: SavedRequest? = null
+        request: SavedRequest? = null,
+        collectionId: String = ""
     ) {
         val scriptService = SonarwhaleScriptService.getInstance(project)
         ProgressManager.getInstance().run(
             object : Task.Backgroundable(project, "Creating script…", false) {
                 override fun run(indicator: com.intellij.openapi.progress.ProgressIndicator) {
-                    val path = scriptService.getOrCreateScript(phase, level, tag, endpoint, request)
+                    val path = scriptService.getOrCreateScript(phase, level, tag, endpoint, request, collectionId)
                     val vf = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(path) ?: return
                     com.intellij.openapi.application.ApplicationManager.getApplication().invokeLater {
                         FileEditorManager.getInstance(project).openFile(vf, true)
@@ -344,7 +366,7 @@ class EndpointTree(private val project: Project) : Tree() {
         group.add(envGroup)
         group.add(Separator.getInstance())
 
-        addScriptPair(group, ScriptLevel.COLLECTION, tag = collection.id)
+        addScriptPair(group, ScriptLevel.COLLECTION, collectionId = collection.id)
     }
 
     private fun buildControllerMenu(group: DefaultActionGroup, node: ControllerNode) {
@@ -365,14 +387,32 @@ class EndpointTree(private val project: Project) : Tree() {
 
         group.add(object : AnAction("New Request", "Create a new saved request for this endpoint", AllIcons.General.Add) {
             override fun actionPerformed(e: AnActionEvent) {
-                val name = Messages.showInputDialog(
-                    project, "Request name:", "New Request", null
-                )?.trim()?.takeIf { it.isNotBlank() } ?: return
-                val isFirst = stateService.getRequests(endpoint.id).isEmpty()
-                val req = SavedRequest(id = UUID.randomUUID().toString(), name = name, isDefault = isFirst)
+                val existingNames = stateService.getRequests(endpoint.id).map { it.name }.toSet()
+                var suggestion = ""
+                var inputName: String? = null
+                while (inputName == null) {
+                    val input = Messages.showInputDialog(
+                        project, "Request name:", "New Request", null, suggestion, null
+                    )?.trim() ?: return
+                    when {
+                        input.isEmpty() -> Messages.showWarningDialog(
+                            project, "Name cannot be empty.", "Invalid Name"
+                        )
+                        input in existingNames -> {
+                            Messages.showWarningDialog(
+                                project,
+                                "A request named \"$input\" already exists for this endpoint.",
+                                "Duplicate Name"
+                            )
+                            suggestion = input
+                        }
+                        else -> inputName = input
+                    }
+                }
+                val isFirst = existingNames.isEmpty()
+                val req = SavedRequest(id = UUID.randomUUID().toString(), name = inputName, isDefault = isFirst)
                 stateService.upsertRequest(endpoint.id, req)
                 refreshRequests(endpoint.id)
-                // Select the new request node
                 val newNode = findRequestNode(endpoint.id, req.id)
                 if (newNode != null) {
                     val path = javax.swing.tree.TreePath(newNode.path)

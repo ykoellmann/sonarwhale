@@ -1,4 +1,3 @@
-/// <reference path="../sw.d.ts" />
 // Users tag post-script — common assertions for all /api/users responses
 
 var s = sw.response.status;
