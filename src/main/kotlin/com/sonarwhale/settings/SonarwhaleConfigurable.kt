@@ -37,6 +37,7 @@ class SonarwhaleConfigurable(private val project: Project) : Configurable {
     private val autoFormatCheck      = JBCheckBox("Auto-format response body (JSON / XML)")
     private val followRedirectsCheck = JBCheckBox("Follow HTTP redirects")
     private val verifySslCheck       = JBCheckBox("Verify SSL certificates (disable for self-signed certs in dev)")
+    private val muteDebugUnavailableCheck = JBCheckBox("Mute \"Script debugging not available\" notification")
 
     private val openModeScratch = JRadioButton("Scratch file (persists between sessions)").also {
         it.toolTipText = "Opens response in JetBrains scratch file — survives IDE restarts"
@@ -136,6 +137,10 @@ class SonarwhaleConfigurable(private val project: Project) : Configurable {
             it.add(openModeTemp)
         })
 
+        // ── Scripting ─────────────────────────────────────────────────────────
+        addSection("Scripting")
+        addCheck(muteDebugUnavailableCheck)
+
         // ── Sources ───────────────────────────────────────────────────────────
         addSection("Sources")
         val reScanBtn = JButton("Re-Scan All Sources", AllIcons.Actions.ForceRefresh).apply {
@@ -186,10 +191,11 @@ class SonarwhaleConfigurable(private val project: Project) : Configurable {
     override fun reset() {
         val s = SonarwhaleStateService.getInstance(project).getGeneralSettings()
         lastLoaded = s
-        gutterIconsCheck.isSelected      = s.gutterIconsEnabled
-        autoFormatCheck.isSelected       = s.autoFormatResponse
-        followRedirectsCheck.isSelected  = s.followRedirects
-        verifySslCheck.isSelected        = s.verifySsl
+        gutterIconsCheck.isSelected           = s.gutterIconsEnabled
+        autoFormatCheck.isSelected            = s.autoFormatResponse
+        followRedirectsCheck.isSelected       = s.followRedirects
+        verifySslCheck.isSelected             = s.verifySsl
+        muteDebugUnavailableCheck.isSelected  = s.muteDebugUnavailableNotification
         refreshCombo.selectedItem        = refreshOptions.firstOrNull { it.seconds == s.autoRefreshIntervalSeconds }
             ?: refreshOptions[2]
         timeoutSpinner.value             = s.requestTimeoutSeconds
@@ -208,6 +214,7 @@ class SonarwhaleConfigurable(private val project: Project) : Configurable {
         autoRefreshIntervalSeconds = (refreshCombo.selectedItem as? RefreshOption)?.seconds ?: 60,
         requestTimeoutSeconds      = (timeoutSpinner.value as? Int) ?: 30,
         defaultContentType         = defaultContentTypeField.text.trim().ifEmpty { "application/json" },
-        responseOpenMode           = if (openModeTemp.isSelected) ResponseOpenMode.TEMP else ResponseOpenMode.SCRATCH
+        responseOpenMode                   = if (openModeTemp.isSelected) ResponseOpenMode.TEMP else ResponseOpenMode.SCRATCH,
+        muteDebugUnavailableNotification   = muteDebugUnavailableCheck.isSelected
     )
 }

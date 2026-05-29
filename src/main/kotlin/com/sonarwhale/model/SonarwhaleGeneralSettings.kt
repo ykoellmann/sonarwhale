@@ -10,5 +10,6 @@ data class SonarwhaleGeneralSettings(
     val followRedirects: Boolean = true,
     val verifySsl: Boolean = true,
     val defaultContentType: String = "application/json",
-    val responseOpenMode: ResponseOpenMode = ResponseOpenMode.SCRATCH
+    val responseOpenMode: ResponseOpenMode = ResponseOpenMode.SCRATCH,
+    val muteDebugUnavailableNotification: Boolean = false
 )
