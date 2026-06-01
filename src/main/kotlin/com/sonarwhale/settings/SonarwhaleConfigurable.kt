@@ -1,7 +1,9 @@
 package com.sonarwhale.settings
 
 import com.intellij.icons.AllIcons
-import com.intellij.openapi.options.Configurable
+import com.intellij.openapi.fileChooser.FileSaverDescriptor
+import com.intellij.openapi.fileChooser.ex.FileSaverDialogImpl
+import com.intellij.openapi.options.SearchableConfigurable
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.ui.JBColor
@@ -11,7 +13,11 @@ import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBTextField
 import com.intellij.util.ui.JBUI
 import com.sonarwhale.SonarwhaleStateService
+import com.sonarwhale.collection.PostmanCollectionExporter
 import com.sonarwhale.gutter.SonarwhaleGutterService
+import com.sonarwhale.license.LicenseService
+import com.sonarwhale.license.PremiumFeature
+import com.sonarwhale.license.PremiumGate
 import com.sonarwhale.model.ResponseOpenMode
 import com.sonarwhale.model.SonarwhaleGeneralSettings
 import com.sonarwhale.service.RouteIndexService
@@ -29,7 +35,9 @@ import javax.swing.JRadioButton
 import javax.swing.JSpinner
 import javax.swing.SpinnerNumberModel
 
-class SonarwhaleConfigurable(private val project: Project) : Configurable {
+class SonarwhaleConfigurable(private val project: Project) : SearchableConfigurable {
+
+    override fun getId() = "com.sonarwhale.settings.SonarwhaleConfigurable"
 
     // ── Widgets ───────────────────────────────────────────────────────────────
 
@@ -163,6 +171,27 @@ class SonarwhaleConfigurable(private val project: Project) : Configurable {
         panel.add(reScanRow, reScanGbc)
         gbc.gridy++
 
+        // ── Export ────────────────────────────────────────────────────────────
+        addSection("Export")
+        val exportBtn = JButton("Export as Postman Collection", AllIcons.ToolbarDecorator.Export).apply {
+            addActionListener { exportPostman() }
+        }
+        PremiumGate.applyTo(exportBtn, PremiumFeature.POSTMAN_EXPORT,
+            locked = !LicenseService.getInstance().isUnlocked(PremiumFeature.POSTMAN_EXPORT))
+        val exportRow = JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).also {
+            it.isOpaque = false
+            it.add(exportBtn)
+            it.add(JBLabel("  Exports all endpoints and saved requests as a Postman Collection v2.1 file").apply {
+                foreground = JBColor.GRAY
+                border = JBUI.Borders.emptyLeft(8)
+            })
+        }
+        val exportGbc = gbc.clone() as GridBagConstraints
+        exportGbc.gridx = 0; exportGbc.gridwidth = 2; exportGbc.weightx = 1.0
+        exportGbc.insets = Insets(2, 12, 2, 0)
+        panel.add(exportRow, exportGbc)
+        gbc.gridy++
+
         // push content to the top
         val fillerGbc = GridBagConstraints()
         fillerGbc.gridx = 0; fillerGbc.gridy = gbc.gridy; fillerGbc.gridwidth = 2
@@ -205,6 +234,21 @@ class SonarwhaleConfigurable(private val project: Project) : Configurable {
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private fun exportPostman() {
+        val descriptor = FileSaverDescriptor("Export Postman Collection", "Choose export location", "json")
+        val dialog = FileSaverDialogImpl(descriptor, project)
+        val wrapper = dialog.save(null as com.intellij.openapi.vfs.VirtualFile?, "sonarwhale-collection.json") ?: return
+
+        val endpoints = RouteIndexService.getInstance(project).endpoints
+        val stateService = SonarwhaleStateService.getInstance(project)
+        val savedRequests = endpoints
+            .mapNotNull { ep -> stateService.getDefaultRequest(ep.id)?.let { ep.id to it } }
+            .toMap()
+
+        val json = PostmanCollectionExporter().export(endpoints, savedRequests)
+        runCatching { wrapper.getVirtualFile(true)?.setBinaryContent(json.toByteArray(Charsets.UTF_8)) }
+    }
 
     private fun state() = SonarwhaleGeneralSettings(
         gutterIconsEnabled         = gutterIconsCheck.isSelected,

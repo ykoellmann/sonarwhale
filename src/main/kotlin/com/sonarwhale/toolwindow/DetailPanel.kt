@@ -135,6 +135,8 @@ class DetailPanel(private val project: Project) : JPanel(BorderLayout()), DataPr
     private fun showContent(endpoint: ApiEndpoint, request: SavedRequest?) {
         showHeader(endpoint, request)
         responsePanel.clear()
+        val colId = RouteIndexService.getInstance(project).getCollectionId(endpoint.id) ?: ""
+        responsePanel.setCurrentEndpoint(colId, endpoint.id)
         cardLayout.show(cardPanel, "content")
         revalidate(); repaint()
     }

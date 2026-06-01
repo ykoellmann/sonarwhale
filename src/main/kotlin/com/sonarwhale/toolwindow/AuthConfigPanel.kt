@@ -1,8 +1,13 @@
 package com.sonarwhale.toolwindow
 
+import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.ui.JBColor
+import com.intellij.ui.SimpleListCellRenderer
 import com.intellij.ui.components.JBLabel
 import com.intellij.util.ui.JBUI
+import com.sonarwhale.license.LicenseService
+import com.sonarwhale.license.PremiumFeature
+import com.sonarwhale.license.PremiumGate
 import com.sonarwhale.model.*
 import java.awt.*
 import javax.swing.*
@@ -36,6 +41,23 @@ class AuthConfigPanel(
 
     private var isLoading = false
 
+    private data class AuthTemplate(val label: String, val config: AuthConfig)
+
+    private val templates = listOf(
+        AuthTemplate("Bearer — {{ACCESS_TOKEN}}",
+            AuthConfig(mode = AuthMode.BEARER, bearerToken = "{{ACCESS_TOKEN}}")),
+        AuthTemplate("JWT — {{JWT_TOKEN}}",
+            AuthConfig(mode = AuthMode.BEARER, bearerToken = "{{JWT_TOKEN}}")),
+        AuthTemplate("API Key in Header  (X-Api-Key: {{API_KEY}})",
+            AuthConfig(mode = AuthMode.API_KEY, apiKeyName = "X-Api-Key", apiKeyValue = "{{API_KEY}}", apiKeyLocation = ApiKeyLocation.HEADER)),
+        AuthTemplate("API Key in Query  (?api_key={{API_KEY}})",
+            AuthConfig(mode = AuthMode.API_KEY, apiKeyName = "api_key", apiKeyValue = "{{API_KEY}}", apiKeyLocation = ApiKeyLocation.QUERY)),
+        AuthTemplate("Basic — {{USERNAME}} / {{PASSWORD}}",
+            AuthConfig(mode = AuthMode.BASIC, basicUsername = "{{USERNAME}}", basicPassword = "{{PASSWORD}}")),
+        AuthTemplate("OAuth2 Client Credentials",
+            AuthConfig(mode = AuthMode.OAUTH2_CLIENT_CREDENTIALS, oauthTokenUrl = "{{OAUTH_TOKEN_URL}}", oauthClientId = "{{CLIENT_ID}}", oauthClientSecret = "{{CLIENT_SECRET}}")),
+    )
+
     // Field components per auth type
     private val bearerTokenField = JTextField(auth.bearerToken)
     private val basicUserField = JTextField(auth.basicUsername)
@@ -51,10 +73,16 @@ class AuthConfigPanel(
     private val oauthScopeField = JTextField(auth.oauthScope)
 
     init {
+        val templatesBtn = JButton("Templates").apply { font = font.deriveFont(10f) }
+        PremiumGate.applyTo(templatesBtn, PremiumFeature.AUTH_HELPERS,
+            locked = !LicenseService.getInstance().isUnlocked(PremiumFeature.AUTH_HELPERS))
+        templatesBtn.addActionListener { showTemplatesPopup(templatesBtn) }
+
         val top = JPanel(FlowLayout(FlowLayout.LEFT, 4, 0))
         top.add(JBLabel("Auth:"))
         top.add(modeCombo)
         top.add(inheritHintLabel)
+        top.add(templatesBtn)
         top.border = JBUI.Borders.empty(4)
 
         fieldsPanel.add(JPanel(), "INHERIT")
@@ -170,6 +198,19 @@ class AuthConfigPanel(
         "Client Secret" to oauthClientSecretField,
         "Scope" to oauthScopeField
     )
+
+    private fun showTemplatesPopup(anchor: JComponent) {
+        JBPopupFactory.getInstance()
+            .createPopupChooserBuilder(templates)
+            .setTitle("Auth Templates")
+            .setRenderer(SimpleListCellRenderer.create { label, t, _ -> label.text = t.label })
+            .setItemChosenCallback { template ->
+                setAuth(template.config, inheritedMode)
+                onChange?.invoke(template.config)
+            }
+            .createPopup()
+            .showUnderneathOf(anchor)
+    }
 
     private fun formPanel(vararg rows: Pair<String, JComponent>): JPanel {
         val p = JPanel(GridBagLayout())

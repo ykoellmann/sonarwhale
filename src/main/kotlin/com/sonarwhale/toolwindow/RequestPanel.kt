@@ -2,6 +2,7 @@ package com.sonarwhale.toolwindow
 
 import com.google.gson.reflect.TypeToken
 import com.google.gson.Gson
+import com.intellij.icons.AllIcons
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.Task
@@ -24,8 +25,11 @@ import com.sonarwhale.model.HierarchyConfig
 import com.sonarwhale.script.SonarwhaleScriptService
 import com.sonarwhale.script.TestResult
 import com.sonarwhale.service.AuthResolver
+import com.sonarwhale.model.RequestRunEntry
+import com.sonarwhale.model.toStored
 import com.sonarwhale.service.CollectionService
 import com.sonarwhale.service.RouteIndexService
+import com.sonarwhale.service.RunHistoryService
 import com.sonarwhale.service.VariableResolver
 import java.awt.BorderLayout
 import java.awt.Color
@@ -64,12 +68,6 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
     private var currentRequestName: String = "Default"
     private var previewMode = false
 
-    private val setDefaultButton = JButton("★").apply {
-        font = font.deriveFont(10f)
-        toolTipText = "Mark as default (run by gutter icon)"
-        isFocusable = false
-    }
-
     // URL bar
     private val computedUrlField = JTextField().apply {
         isEditable = false
@@ -77,25 +75,13 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
         font = Font(Font.MONOSPACED, Font.PLAIN, 12)
         toolTipText = "Full URL computed from base + route + parameters"
     }
-    private val sendButton  = JButton("Send").apply { font = font.deriveFont(Font.BOLD) }
+    private var requestActionsEnabled = true
+    private var isCurrentDefault = false
+    private lateinit var requestActionsToolbar: com.intellij.openapi.actionSystem.ActionToolbar
+
     private val saveButton = JButton("Save").apply {
         font = font.deriveFont(11f)
         toolTipText = "Save current headers, body & param values"
-    }
-
-    /**
-     * Breakpoints gemutet = true → normaler Send (kein Debugger).
-     * Breakpoints aktiv = false → Send läuft im nativen JS-Debugger.
-     * Startzustand: gemuted (Toggle aus = Breakpoints aktiv = Debug an wäre verwirrend).
-     * Logik identisch zu JetBrains MuteBreakpoints: Toggle AN = gemuted = kein Break.
-     */
-    private var breakpointsMuted: Boolean = false
-
-    fun setDebugMode(muted: Boolean) {
-        breakpointsMuted = muted
-        sendButton.toolTipText = if (!muted)
-            "Send (breakpoints active — scripts run in native JS debugger)"
-        else null
     }
 
     // Auth state
@@ -110,7 +96,7 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
     private val headersTable = ParamsTablePanel()
     private val bodyPanel = BodyPanel(project)
 
-    private val actionButtons: List<JComponent> = listOf(sendButton, saveButton, setDefaultButton)
+    private val actionButtons: List<JComponent> = listOf(saveButton)
 
     private val tabs = CollapsibleTabPane()
 
@@ -144,7 +130,6 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
     /** Called by DetailPanel when the user edits the name field in the header. */
     fun setRequestName(name: String) { currentRequestName = name }
 
-    /** Called by DetailPanel's ★ button. */
     fun triggerSetDefault() = setAsDefault()
 
     private val recomputeListener = object : DocumentListener {
@@ -167,11 +152,7 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
         add(buildTopBar(), BorderLayout.NORTH)
         add(tabs, BorderLayout.CENTER)
 
-        // Toggle AN = Breakpoints gemuted = normaler Send
-        // Toggle AUS = Breakpoints aktiv = Debug-Send
-        sendButton.addActionListener  { if (breakpointsMuted) sendRequest() else debugSendRequest() }
         saveButton.addActionListener  { createNewRequest() }
-        setDefaultButton.addActionListener { setAsDefault() }
         paramsTable.addChangeListener { updateComputedUrl(); autoSave() }
         headersTable.addChangeListener { autoSave() }
         bodyPanel.addChangeListener { autoSave() }
@@ -192,17 +173,55 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
         val gbc = GridBagConstraints()
         gbc.gridy = 0; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.anchor = GridBagConstraints.WEST
 
+        val runAction = object : com.intellij.openapi.actionSystem.AnAction(
+            "Run", "Run request", AllIcons.Actions.Execute
+        ) {
+            override fun actionPerformed(e: com.intellij.openapi.actionSystem.AnActionEvent) = sendRequest()
+            override fun update(e: com.intellij.openapi.actionSystem.AnActionEvent) {
+                e.presentation.isEnabled = requestActionsEnabled
+            }
+            override fun getActionUpdateThread() = com.intellij.openapi.actionSystem.ActionUpdateThread.EDT
+        }
+        val debugAction = object : com.intellij.openapi.actionSystem.AnAction(
+            "Debug", "Run with JS debugger — pauses on breakpoints in pre/post scripts", AllIcons.Actions.StartDebugger
+        ) {
+            override fun actionPerformed(e: com.intellij.openapi.actionSystem.AnActionEvent) = debugSendRequest()
+            override fun update(e: com.intellij.openapi.actionSystem.AnActionEvent) {
+                e.presentation.isEnabled = requestActionsEnabled
+            }
+            override fun getActionUpdateThread() = com.intellij.openapi.actionSystem.ActionUpdateThread.EDT
+        }
+        val favoriteAction = object : com.intellij.openapi.actionSystem.ToggleAction(
+            "Set as Default", "Mark as default request (run by gutter icon)", AllIcons.Nodes.Favorite
+        ) {
+            override fun isSelected(e: com.intellij.openapi.actionSystem.AnActionEvent) = isCurrentDefault
+            override fun setSelected(e: com.intellij.openapi.actionSystem.AnActionEvent, state: Boolean) {
+                if (state) setAsDefault()
+                // clicking when already default is a no-op
+            }
+            override fun update(e: com.intellij.openapi.actionSystem.AnActionEvent) {
+                super.update(e)
+                e.presentation.icon = if (isCurrentDefault) AllIcons.Nodes.Favorite else AllIcons.Nodes.NotFavoriteOnHover
+                e.presentation.description = if (isCurrentDefault)
+                    "This is the default request (run by gutter icon)"
+                else
+                    "Mark as default (run by gutter icon)"
+            }
+            override fun getActionUpdateThread() = com.intellij.openapi.actionSystem.ActionUpdateThread.EDT
+        }
+        val group = com.intellij.openapi.actionSystem.DefaultActionGroup(runAction, debugAction, favoriteAction)
+        requestActionsToolbar = com.intellij.openapi.actionSystem.ActionManager.getInstance()
+            .createActionToolbar("Sonarwhale.RequestRun", group, true)
+        requestActionsToolbar.targetComponent = bar
+
         gbc.gridx = 0; gbc.weightx = 1.0; gbc.insets = Insets(0, 0, 0, 6)
         bar.add(computedUrlField, gbc)
 
-        gbc.gridx = 1; gbc.weightx = 0.0; gbc.insets = Insets(0, 0, 0, 4)
-        bar.add(sendButton, gbc)
+        gbc.gridx = 1; gbc.weightx = 0.0; gbc.insets = Insets(0, 0, 0, 0)
+        bar.add(requestActionsToolbar.component, gbc)
 
-        gbc.gridx = 2; gbc.insets = Insets(0, 0, 0, 4)
+        gbc.gridx = 2; gbc.insets = Insets(0, 4, 0, 4)
         bar.add(saveButton, gbc)
-
-        gbc.gridx = 3; gbc.insets = Insets(0, 0, 0, 0)
-        bar.add(setDefaultButton, gbc)
 
         return bar
     }
@@ -375,8 +394,7 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
 
     fun setPreviewMode(preview: Boolean) {
         previewMode = preview
-        sendButton.isVisible  = !preview
-        setDefaultButton.isVisible = !preview
+        requestActionsToolbar.component.isVisible = !preview
         saveButton.isVisible = preview
         saveButton.text = "New Request"
         paramsTable.setReadOnly(preview)
@@ -393,12 +411,8 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
     // ── Private helpers ───────────────────────────────────────────────────────
 
     private fun updateDefaultButtonState(isDefault: Boolean) {
-        setDefaultButton.isEnabled = !isDefault
-        setDefaultButton.foreground = if (isDefault)
-            JBColor(Color(0xCC, 0xAA, 0x00), Color(0xFF, 0xDD, 0x55))
-        else
-            JBColor.GRAY
-        setDefaultButton.toolTipText = if (isDefault) "This is the default request" else "Mark as default (run by gutter icon)"
+        isCurrentDefault = isDefault
+        requestActionsToolbar.updateActionsImmediately()
     }
 
 
@@ -594,13 +608,40 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
 
     }
 
+    private fun saveRunToHistory(
+        collectionId: String,
+        endpointId: String,
+        method: String,
+        url: String,
+        statusCode: Int,
+        body: String,
+        durationMs: Long,
+        testResults: List<TestResult>,
+        consoleEntries: List<com.sonarwhale.script.ConsoleEntry>
+    ) {
+        val truncated = if (body.length > RequestRunEntry.MAX_BODY_CHARS)
+            body.substring(0, RequestRunEntry.MAX_BODY_CHARS) else body
+        RunHistoryService.getInstance(project).add(RequestRunEntry(
+            collectionId   = collectionId,
+            endpointId     = endpointId,
+            method         = method,
+            url            = url,
+            statusCode     = statusCode,
+            responseBody   = truncated,
+            durationMs     = durationMs,
+            testResults    = testResults,
+            consoleEntries = consoleEntries.map { it.toStored() }
+        ))
+    }
+
     private fun sendRequest() {
         val endpoint = currentEndpoint ?: return
         val rawUrl = computedUrlField.text.trim()
         if (rawUrl.isEmpty()) return
 
         saveRequest()
-        sendButton.isEnabled = false
+        requestActionsEnabled = false
+        requestActionsToolbar.updateActionsImmediately()
 
         val colId = RouteIndexService.getInstance(project).getCollectionId(endpoint.id) ?: ""
         val varResolver = VariableResolver.getInstance(project)
@@ -722,7 +763,8 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
             }
 
             override fun done() {
-                sendButton.isEnabled = true
+                requestActionsEnabled = true
+                requestActionsToolbar.updateActionsImmediately()
                 runCatching {
                     val result = get()
                     val (status, body, duration) = result.first
@@ -731,11 +773,14 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
                     onNextResponse?.also { it(status, body, duration, contentType); onNextResponse = null }
                     onTestResultsReceived?.invoke(testResults)
                     onConsoleReceived?.invoke(consoleOutput.entries)
+                    saveRunToHistory(colId, endpoint.id, endpoint.method.name, resolvedUrl, status, body, duration, testResults, consoleOutput.entries)
                 }.onFailure { e ->
-                    onResponseReceived?.invoke(0, describeError(e), 0, "")
-                    onNextResponse?.also { it(0, describeError(e), 0, ""); onNextResponse = null }
+                    val errorMsg = describeError(e)
+                    onResponseReceived?.invoke(0, errorMsg, 0, "")
+                    onNextResponse?.also { it(0, errorMsg, 0, ""); onNextResponse = null }
                     onTestResultsReceived?.invoke(emptyList())
                     onConsoleReceived?.invoke(consoleOutput.entries)
+                    saveRunToHistory(colId, endpoint.id, endpoint.method.name, resolvedUrl, 0, errorMsg, 0, emptyList(), consoleOutput.entries)
                 }
             }
         }.execute()
@@ -777,7 +822,8 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
         }
 
         saveRequest()
-        sendButton.isEnabled  = false
+        requestActionsEnabled = false
+        requestActionsToolbar.updateActionsImmediately()
 
         val colId       = RouteIndexService.getInstance(project).getCollectionId(endpoint.id) ?: ""
         val varResolver = VariableResolver.getInstance(project)
@@ -890,7 +936,8 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
             }
 
             override fun done() {
-                sendButton.isEnabled  = true
+                requestActionsEnabled = true
+                requestActionsToolbar.updateActionsImmediately()
                 runCatching {
                     val result      = get()
                     val (status, body, duration) = result.first
@@ -899,11 +946,14 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
                     onNextResponse?.also { it(status, body, duration, contentType); onNextResponse = null }
                     onTestResultsReceived?.invoke(testResults)
                     onConsoleReceived?.invoke(consoleOutput.entries)
+                    saveRunToHistory(colId, endpoint.id, endpoint.method.name, resolvedUrl, status, body, duration, testResults, consoleOutput.entries)
                 }.onFailure { e ->
-                    onResponseReceived?.invoke(0, describeError(e), 0, "")
-                    onNextResponse?.also { it(0, describeError(e), 0, ""); onNextResponse = null }
+                    val errorMsg = describeError(e)
+                    onResponseReceived?.invoke(0, errorMsg, 0, "")
+                    onNextResponse?.also { it(0, errorMsg, 0, ""); onNextResponse = null }
                     onTestResultsReceived?.invoke(emptyList())
                     onConsoleReceived?.invoke(consoleOutput.entries)
+                    saveRunToHistory(colId, endpoint.id, endpoint.method.name, resolvedUrl, 0, errorMsg, 0, emptyList(), consoleOutput.entries)
                 }
             }
 

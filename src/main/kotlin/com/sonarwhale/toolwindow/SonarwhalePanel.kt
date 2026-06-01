@@ -20,10 +20,13 @@ import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.util.ui.JBUI
 import com.sonarwhale.SonarwhaleStateService
+import com.sonarwhale.license.LicenseService
+import com.sonarwhale.license.LicenseStatus
 import com.sonarwhale.model.ApiEndpoint
 import com.sonarwhale.service.RouteIndexService
 import com.sonarwhale.settings.SonarwhaleConfigurable
 import java.awt.BorderLayout
+import java.awt.Font
 import java.awt.event.KeyAdapter
 import java.awt.event.KeyEvent
 import javax.swing.BoxLayout
@@ -99,26 +102,8 @@ class SonarwhalePanel(private val project: Project) : JPanel(BorderLayout()) {
     init {
         val service = RouteIndexService.getInstance(project)
 
-        // ── Rechte Toolbar: Debug-Toggle + Settings ────────────────────────────
-        // Beide als ToggleAction/AnAction in einer ActionToolbar — damit bekommen
-        // sie automatisch das korrekte JetBrains-Styling (grauer Hintergrund wenn
-        // aktiv, korrektes Hover-Verhalten, Icon-Rendering wie MuteBreakpoints).
+        // ── Rechte Toolbar: Settings ──────────────────────────────────────────
         val rightGroup = DefaultActionGroup()
-
-        var debugModeActive = false
-        rightGroup.add(object : ToggleAction(
-            "Debug Mode",
-            "When active, Send runs scripts in the native JS debugger",
-            AllIcons.Debugger.MuteBreakpoints
-        ) {
-            override fun isSelected(e: AnActionEvent): Boolean = debugModeActive
-            override fun setSelected(e: AnActionEvent, state: Boolean) {
-                debugModeActive = state
-                detailPanel.requestPanel.setDebugMode(state)
-            }
-            override fun getActionUpdateThread() =
-                com.intellij.openapi.actionSystem.ActionUpdateThread.EDT
-        })
 
         rightGroup.add(object : AnAction(
             "Sonarwhale Settings",
@@ -136,13 +121,31 @@ class SonarwhalePanel(private val project: Project) : JPanel(BorderLayout()) {
             .createActionToolbar("Sonarwhale.RightToolbar", rightGroup, true)
         rightToolbar.targetComponent = this
 
+        val licenseStatus = LicenseService.getInstance().getStatus()
+        val badgeLabel = JBLabel(if (licenseStatus == LicenseStatus.TRIAL) "TRIAL" else "FREE").apply {
+            font        = font.deriveFont(Font.BOLD, 10f)
+            foreground  = JBColor.GRAY
+            border      = JBUI.Borders.empty(0, 0, 0, 4)
+            isVisible   = licenseStatus != LicenseStatus.PREMIUM
+            toolTipText = "Upgrade to Sonarwhale Premium"
+            cursor      = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
+            addMouseListener(object : java.awt.event.MouseAdapter() {
+                override fun mouseClicked(e: java.awt.event.MouseEvent) =
+                    LicenseService.requestLicense()
+            })
+        }
+
+        val rightPanel = JPanel(BorderLayout()).apply { isOpaque = false }
+        rightPanel.add(badgeLabel,            BorderLayout.WEST)
+        rightPanel.add(rightToolbar.component, BorderLayout.EAST)
+
         val topBar = JPanel(BorderLayout(4, 0))
         topBar.border = JBUI.Borders.compound(
             JBUI.Borders.customLineBottom(JBColor.border()),
             JBUI.Borders.empty(4, 4)
         )
-        topBar.add(buildToolbar().component,  BorderLayout.WEST)
-        topBar.add(rightToolbar.component,    BorderLayout.EAST)
+        topBar.add(buildToolbar().component, BorderLayout.WEST)
+        topBar.add(rightPanel,               BorderLayout.EAST)
 
         // topBar (always visible) + collapsible search bar stacked in NORTH
         val leftTop = JPanel(BorderLayout())
@@ -325,4 +328,5 @@ class SonarwhalePanel(private val project: Project) : JPanel(BorderLayout()) {
         toolbar.targetComponent = this
         return toolbar
     }
+
 }

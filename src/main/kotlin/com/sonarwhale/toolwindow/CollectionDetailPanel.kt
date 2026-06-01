@@ -5,6 +5,9 @@ import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.util.ui.JBUI
+import com.sonarwhale.license.LicenseService
+import com.sonarwhale.license.PremiumFeature
+import com.sonarwhale.license.PremiumGate
 import com.sonarwhale.model.ApiCollection
 import com.sonarwhale.model.CollectionEnvironment
 import com.sonarwhale.model.EnvironmentSource
@@ -78,6 +81,11 @@ private class EnvironmentsListPanel : JPanel(BorderLayout()) {
     private var onSetActive: ((String) -> Unit)? = null
     private var activeId: String? = null
 
+    private val addBtn = JButton(com.intellij.icons.AllIcons.General.Add).apply {
+        isBorderPainted = false; isContentAreaFilled = false
+        addActionListener { showAddDialog() }
+    }
+
     init {
         list.cellRenderer = ListCellRenderer { _, value, _, selected, _ ->
             JBLabel("${if (value.id == activeId) "● " else "  "}${value.name}  " +
@@ -86,10 +94,6 @@ private class EnvironmentsListPanel : JPanel(BorderLayout()) {
             }
         }
 
-        val addBtn = JButton(com.intellij.icons.AllIcons.General.Add).apply {
-            isBorderPainted = false; isContentAreaFilled = false
-            addActionListener { showAddDialog() }
-        }
         val removeBtn = JButton(com.intellij.icons.AllIcons.General.Remove).apply {
             isBorderPainted = false; isContentAreaFilled = false
             addActionListener {
@@ -123,6 +127,10 @@ private class EnvironmentsListPanel : JPanel(BorderLayout()) {
         listModel.clear()
         col.environments.forEach { listModel.addElement(it) }
         list.repaint()
+
+        val atLimit = col.environments.size >= LicenseService.FREE_ENVIRONMENT_LIMIT
+        PremiumGate.applyTo(addBtn, PremiumFeature.UNLIMITED_ENVIRONMENTS,
+            locked = atLimit && !LicenseService.getInstance().isUnlocked(PremiumFeature.UNLIMITED_ENVIRONMENTS))
     }
 
     private fun showAddDialog() {

@@ -1,6 +1,15 @@
 import org.apache.tools.ant.taskdefs.condition.Os
 import org.jetbrains.intellij.platform.gradle.IntelliJPlatformType
 
+buildscript {
+    repositories {
+        maven { url = uri("https://cache-redirector.jetbrains.com/maven-central") }
+    }
+    dependencies {
+        classpath("com.guardsquare:proguard-gradle:7.5.0")
+    }
+}
+
 plugins {
     id("java")
     alias(libs.plugins.kotlinJvm)
@@ -11,7 +20,7 @@ plugins {
 val isWindows = Os.isFamily(Os.FAMILY_WINDOWS)
 extra["isWindows"] = isWindows
 
-val RiderPluginId: String by project
+val PluginId: String by project
 val ProductVersion: String by project
 val PyCharmVersion: String by project
 val PublishToken: String by project
@@ -133,6 +142,11 @@ intellijPlatformTesting {
     }
 }
 
+intellijPlatform {
+    buildSearchableOptions = true
+}
+
+
 tasks.patchPluginXml {
     val changelogText = file("${rootDir}/CHANGELOG.md").readText()
     val changelogMatches = Regex("(?s)(-.+?)(?=##|\$)").findAll(changelogText)
@@ -145,4 +159,33 @@ tasks.patchPluginXml {
 tasks.publishPlugin {
     dependsOn(tasks.buildPlugin)
     token.set("${PublishToken}")
+}
+
+// ---------------------------------------------------------------------------
+// Obfuscation — produces a ProGuard-processed jar ready for release.
+//   ./gradlew obfuscate
+// Outputs:  build/libs/Sonarwhale-VERSION-obfuscated.jar
+//           build/libs/mapping.txt  (keep for crash decoding!)
+// ---------------------------------------------------------------------------
+tasks.register<proguard.gradle.ProGuardTask>("obfuscate") {
+    dependsOn("instrumentedJar")
+
+    val instrumentedJarTask = tasks.named<Jar>("instrumentedJar")
+    injars(instrumentedJarTask.flatMap { it.archiveFile })
+
+    // IntelliJ platform + bundled libs (Rhino, Gson) — library-only, not obfuscated
+    libraryjars(configurations.compileClasspath)
+
+    // JDK 9+ — expose platform classes via jmods so ProGuard can resolve signatures
+    val jmodsDir = file("${System.getProperty("java.home")}/jmods")
+    if (jmodsDir.isDirectory) {
+        libraryjars(
+            mapOf("jarfilter" to "!**.jar", "filter" to "!module-info.class"),
+            fileTree(jmodsDir) { include("*.jmod") }
+        )
+    }
+
+    configuration(file("proguard.pro"))
+    outjars(layout.buildDirectory.file("libs/${rootProject.name}-${version}-obfuscated.jar"))
+    printmapping(layout.buildDirectory.file("libs/mapping.txt"))
 }

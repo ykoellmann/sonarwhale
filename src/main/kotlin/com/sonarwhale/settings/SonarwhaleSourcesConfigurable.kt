@@ -2,7 +2,7 @@ package com.sonarwhale.settings
 
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
-import com.intellij.openapi.options.Configurable
+import com.intellij.openapi.options.SearchableConfigurable
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.TextFieldWithBrowseButton
 import com.intellij.ui.JBColor
@@ -47,7 +47,9 @@ import javax.swing.SwingConstants
  * One collection = one API source (ServerUrl, FilePath, or StaticImport).
  * Environments (variable sets) are managed in the tool window.
  */
-class SonarwhaleSourcesConfigurable(private val project: Project) : Configurable {
+class SonarwhaleSourcesConfigurable(private val project: Project) : SearchableConfigurable {
+
+    override fun getId() = "com.sonarwhale.settings.SonarwhaleSourcesConfigurable"
 
     private val service: CollectionService get() = CollectionService.getInstance(project)
     private val initService: SonarwhaleInitService get() = SonarwhaleInitService.getInstance(project)

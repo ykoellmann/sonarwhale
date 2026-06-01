@@ -1,8 +1,9 @@
 <idea-plugin require-restart="true">
-  <id>com.jetbrains.rider.plugins.sonarwhale</id>
+  <id>com.sonarwhale</id>
   <name>Sonarwhale</name>
   <version>_PLACEHOLDER_</version>
-  <vendor email="" url="">Yannik Köllmann</vendor>
+  <vendor email="contact@koellmann.dev" url="https://koellmann.dev">Yannik Köllmann</vendor>
+  <product-descriptor code="PSONARWHALE" release-date="20260601" release-version="10" optional="true"/>
   <idea-version since-build="_PLACEHOLDER_" until-build="_PLACEHOLDER_" />
 
   <depends>com.intellij.modules.platform</depends>
@@ -33,6 +34,9 @@
 
   <extensions defaultExtensionNs="com.intellij">
 
+    <applicationService serviceImplementation="com.sonarwhale.license.LicenseService"/>
+    <projectService serviceImplementation="com.sonarwhale.service.RunHistoryService"/>
+
     <!-- Tool window shown at the bottom of Rider -->
     <toolWindow
         id="Sonarwhale"
@@ -57,6 +61,7 @@
     <projectConfigurable
         parentId="com.sonarwhale.settings.SonarwhaleConfigurable"
         instance="com.sonarwhale.settings.SonarwhaleSourcesConfigurable"
+        id="com.sonarwhale.settings.SonarwhaleSourcesConfigurable"
         displayName="Sources"
         nonDefaultProject="false"/>
 

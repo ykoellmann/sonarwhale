@@ -3,6 +3,12 @@ package com.sonarwhale.toolwindow
 import com.google.gson.GsonBuilder
 import com.google.gson.JsonParser
 import com.intellij.ide.scratch.ScratchRootType
+import com.intellij.openapi.ui.popup.JBPopupFactory
+import com.intellij.ui.SimpleListCellRenderer
+import com.intellij.ui.components.DropDownLink
+import com.sonarwhale.model.RequestRunEntry
+import com.sonarwhale.model.toConsoleEntry
+import com.sonarwhale.service.RunHistoryService
 import com.intellij.lang.Language
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.command.WriteCommandAction
@@ -60,6 +66,45 @@ class ResponsePanel(private val project: Project) : JPanel(BorderLayout()) {
     }
     private val tabActionsBar = JPanel(FlowLayout(FlowLayout.LEFT, 4, 0)).apply {
         isOpaque = false
+    }
+
+    private var currentCollectionId: String? = null
+    private var currentEndpointId: String? = null
+
+    private val historyLink = DropDownLink<String>("History") { _ ->
+        val colId = currentCollectionId
+        val endId = currentEndpointId
+        val entries = if (colId != null && endId != null)
+            RunHistoryService.getInstance(project).getForEndpoint(colId, endId)
+        else emptyList()
+
+        if (entries.isEmpty()) {
+            val label = JBLabel("No history for this endpoint yet.").apply {
+                border = JBUI.Borders.empty(8)
+            }
+            return@DropDownLink JBPopupFactory.getInstance()
+                .createComponentPopupBuilder(label, null)
+                .createPopup()
+        }
+
+        val fmt = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+        JBPopupFactory.getInstance()
+            .createPopupChooserBuilder(entries)
+            .setTitle("Run History")
+            .setNamerForFiltering { entry ->
+                val dt = java.time.Instant.ofEpochMilli(entry.timestamp)
+                    .atZone(java.time.ZoneId.systemDefault()).toLocalDateTime()
+                val status = if (entry.statusCode == 0) "Error" else "${entry.statusCode}"
+                "${dt.format(fmt)} $status ${entry.durationMs}ms"
+            }
+            .setRenderer(SimpleListCellRenderer.create { label, entry, _ ->
+                val dt = java.time.Instant.ofEpochMilli(entry.timestamp)
+                    .atZone(java.time.ZoneId.systemDefault()).toLocalDateTime()
+                val status = if (entry.statusCode == 0) "Error" else "${entry.statusCode}"
+                label.text = "${dt.format(fmt)}  $status  ${entry.durationMs} ms"
+            })
+            .setItemChosenCallback { restoreFromHistory(it) }
+            .createPopup()
     }
 
     private var allConsoleEntries: List<ConsoleEntry> = emptyList()
@@ -132,8 +177,14 @@ class ResponsePanel(private val project: Project) : JPanel(BorderLayout()) {
         headerBar.add(contentRow)
         headerBar.add(Box.createVerticalGlue())
 
+        val historyWrapper = JPanel(java.awt.GridBagLayout()).apply {
+            isOpaque = false
+            border = JBUI.Borders.empty(0, 0, 0, 8)
+            add(historyLink)
+        }
         val headerWrapper = JPanel(BorderLayout())
         headerWrapper.add(headerBar, BorderLayout.CENTER)
+        headerWrapper.add(historyWrapper, BorderLayout.EAST)
         headerWrapper.add(JSeparator(), BorderLayout.SOUTH)
 
         add(headerWrapper, BorderLayout.NORTH)
@@ -391,6 +442,17 @@ class ResponsePanel(private val project: Project) : JPanel(BorderLayout()) {
             javax.xml.transform.stream.StreamResult(result)
         )
         return result.toString().trim()
+    }
+
+    fun setCurrentEndpoint(collectionId: String, endpointId: String) {
+        currentCollectionId = collectionId
+        currentEndpointId = endpointId
+    }
+
+    private fun restoreFromHistory(entry: RequestRunEntry) {
+        showResponse(entry.statusCode, entry.responseBody, entry.durationMs)
+        showTestResults(entry.testResults)
+        showConsole(entry.consoleEntries.map { it.toConsoleEntry() })
     }
 
     companion object {
