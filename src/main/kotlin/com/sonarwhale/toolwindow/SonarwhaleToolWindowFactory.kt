@@ -3,7 +3,9 @@ package com.sonarwhale.toolwindow
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.ToolWindow
+import com.intellij.openapi.wm.ToolWindowAnchor
 import com.intellij.openapi.wm.ToolWindowFactory
+import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.ui.content.ContentFactory
 import com.sonarwhale.service.CollectionService
 import com.sonarwhale.service.RouteIndexService
@@ -22,7 +24,19 @@ class SonarwhaleToolWindowFactory : ToolWindowFactory, DumbAware {
         }
     }
 
+    @Suppress("OVERRIDE_DEPRECATION")
     override fun isApplicable(project: Project): Boolean = true
+
+    // Explicit overrides to avoid Kotlin-generated bridge methods that call deprecated/
+    // experimental interface defaults — anchor and icon are declared in plugin.xml.
+    @Suppress("OVERRIDE_DEPRECATION")
+    override val isDoNotActivateOnStart: Boolean = false
+    @Suppress("UnstableApiUsage")
+    override val anchor: ToolWindowAnchor? = null
+    @Suppress("UnstableApiUsage")
+    override val icon: javax.swing.Icon? = null
+    @Suppress("UnstableApiUsage")
+    override suspend fun manage(toolWindow: ToolWindow, toolWindowManager: ToolWindowManager) {}
 
     companion object {
         /** Shows the normal endpoint panel. Called after initialization. */

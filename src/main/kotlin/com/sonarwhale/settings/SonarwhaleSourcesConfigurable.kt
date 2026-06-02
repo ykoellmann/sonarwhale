@@ -101,8 +101,10 @@ class SonarwhaleSourcesConfigurable(private val project: Project) : SearchableCo
         reset()
 
         filePathField.addBrowseFolderListener(
-            "Select OpenAPI file", "Choose a swagger.json or openapi.yaml file", project,
+            project,
             FileChooserDescriptorFactory.createSingleFileNoJarsDescriptor()
+                .withTitle("Select OpenAPI file")
+                .withDescription("Choose a swagger.json or openapi.yaml file")
                 .withFileFilter { it.extension?.lowercase() in listOf("json", "yaml", "yml") }
         )
 

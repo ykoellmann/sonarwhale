@@ -203,7 +203,11 @@ class AuthConfigPanel(
         JBPopupFactory.getInstance()
             .createPopupChooserBuilder(templates)
             .setTitle("Auth Templates")
-            .setRenderer(SimpleListCellRenderer.create { label, t, _ -> label.text = t.label })
+            .setRenderer(object : SimpleListCellRenderer<AuthTemplate>() {
+                override fun customize(list: javax.swing.JList<out AuthTemplate>, value: AuthTemplate, index: Int, selected: Boolean, focused: Boolean) {
+                    text = value.label
+                }
+            })
             .setItemChosenCallback { template ->
                 setAuth(template.config, inheritedMode)
                 onChange?.invoke(template.config)

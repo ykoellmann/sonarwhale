@@ -154,11 +154,34 @@ tasks.patchPluginXml {
     changeNotes.set(changelogMatches.map {
         it.groups[1]!!.value.replace("(?s)\r?\n".toRegex(), "<br />\n")
     }.take(1).joinToString())
+
+    // Compute release-version from PluginVersion and inject placeholders into plugin.xml.
+    // release-version format: major * 10 + minor  →  "1.0.x" → 10,  "1.1.x" → 11,  "2.0.x" → 20
+    // release-date comes from PluginReleaseDate in gradle.properties (set once per release).
+    val pluginVer = providers.gradleProperty("PluginVersion").get()
+    val parts = pluginVer.split(".")
+    val computedReleaseVersion = (parts[0].toInt() * 10 + parts.getOrElse(1) { "0" }.toInt()).toString()
+    val releaseDate = providers.gradleProperty("PluginReleaseDate").get()
+
+    doLast {
+        val outputXml = outputFile.get().asFile
+        outputXml.writeText(
+            outputXml.readText()
+                .replace("RELEASE_VERSION_PLACEHOLDER", computedReleaseVersion)
+                .replace("RELEASE_DATE_PLACEHOLDER", releaseDate)
+        )
+    }
+}
+
+tasks.signPlugin {
+    certificateChain.set(providers.environmentVariable("CERTIFICATE_CHAIN"))
+    privateKey.set(providers.environmentVariable("PRIVATE_KEY"))
+    password.set(providers.environmentVariable("PRIVATE_KEY_PASSWORD"))
 }
 
 tasks.publishPlugin {
-    dependsOn(tasks.buildPlugin)
-    token.set("${PublishToken}")
+    dependsOn(tasks.signPlugin)
+    token.set(providers.environmentVariable("PUBLISH_TOKEN").orElse(PublishToken))
 }
 
 // ---------------------------------------------------------------------------
@@ -168,15 +191,19 @@ tasks.publishPlugin {
 //           build/libs/mapping.txt  (keep for crash decoding!)
 // ---------------------------------------------------------------------------
 tasks.register<proguard.gradle.ProGuardTask>("obfuscate") {
-    dependsOn("instrumentedJar")
+    // InstrumentedJarTask is not a subtype of Jar in IPG 2.x — access via outputs.files.
+    val instrTask = tasks.named("instrumentedJar")
+    dependsOn(instrTask)
 
-    val instrumentedJarTask = tasks.named<Jar>("instrumentedJar")
-    injars(instrumentedJarTask.flatMap { it.archiveFile })
+    // Exclude kotlin_module metadata — ProGuard 7.5.0 can't parse Kotlin 2.3.0 metadata.
+    // Not needed at plugin runtime (only used by the Kotlin compiler for cross-module resolution).
+    injars(mapOf("filter" to "!META-INF/*.kotlin_module"), instrTask.map { it.outputs.files })
 
-    // IntelliJ platform + bundled libs (Rhino, Gson) — library-only, not obfuscated
+    // IntelliJ platform + bundled libs (Rhino, Gson) — library-only, not obfuscated.
     libraryjars(configurations.compileClasspath)
 
-    // JDK 9+ — expose platform classes via jmods so ProGuard can resolve signatures
+    // JDK 9+ jmods: ProGuard needs java.lang.Object to resolve class hierarchies.
+    // The "incorrectly named files" warning from jmod's classes/ prefix is suppressed via -ignorewarnings.
     val jmodsDir = file("${System.getProperty("java.home")}/jmods")
     if (jmodsDir.isDirectory) {
         libraryjars(
@@ -188,4 +215,18 @@ tasks.register<proguard.gradle.ProGuardTask>("obfuscate") {
     configuration(file("proguard.pro"))
     outjars(layout.buildDirectory.file("libs/${rootProject.name}-${version}-obfuscated.jar"))
     printmapping(layout.buildDirectory.file("libs/mapping.txt"))
+
+    // Replace the original instrumented JAR with the obfuscated version so that
+    // prepareSandbox (and therefore buildPlugin) picks up the obfuscated output.
+    doLast {
+        val obfJar  = layout.buildDirectory.file("libs/${rootProject.name}-${version}-obfuscated.jar").get().asFile
+        val origJar = instrTask.get().outputs.files.singleFile
+        obfJar.copyTo(origJar, overwrite = true)
+    }
+}
+
+// prepareSandbox copies the instrumentedJar into the plugin sandbox;
+// run obfuscate first so the sandbox (and the final ZIP) contains the obfuscated JAR.
+tasks.named("prepareSandbox") {
+    dependsOn("obfuscate")
 }

@@ -3,8 +3,8 @@
   <name>Sonarwhale</name>
   <version>_PLACEHOLDER_</version>
   <vendor email="contact@koellmann.dev" url="https://koellmann.dev">Yannik Köllmann</vendor>
-  <product-descriptor code="PSONARWHALE" release-date="20260601" release-version="10" optional="true"/>
-  <idea-version since-build="_PLACEHOLDER_" until-build="_PLACEHOLDER_" />
+  <product-descriptor code="PSONARWHALE" release-date="RELEASE_DATE_PLACEHOLDER" release-version="RELEASE_VERSION_PLACEHOLDER" optional="true"/>
+  <idea-version since-build="_PLACEHOLDER_" />
 
   <depends>com.intellij.modules.platform</depends>
 

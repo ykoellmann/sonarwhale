@@ -97,11 +97,13 @@ class ResponsePanel(private val project: Project) : JPanel(BorderLayout()) {
                 val status = if (entry.statusCode == 0) "Error" else "${entry.statusCode}"
                 "${dt.format(fmt)} $status ${entry.durationMs}ms"
             }
-            .setRenderer(SimpleListCellRenderer.create { label, entry, _ ->
-                val dt = java.time.Instant.ofEpochMilli(entry.timestamp)
-                    .atZone(java.time.ZoneId.systemDefault()).toLocalDateTime()
-                val status = if (entry.statusCode == 0) "Error" else "${entry.statusCode}"
-                label.text = "${dt.format(fmt)}  $status  ${entry.durationMs} ms"
+            .setRenderer(object : SimpleListCellRenderer<RequestRunEntry>() {
+                override fun customize(list: javax.swing.JList<out RequestRunEntry>, value: RequestRunEntry, index: Int, selected: Boolean, focused: Boolean) {
+                    val dt = java.time.Instant.ofEpochMilli(value.timestamp)
+                        .atZone(java.time.ZoneId.systemDefault()).toLocalDateTime()
+                    val status = if (value.statusCode == 0) "Error" else "${value.statusCode}"
+                    text = "${dt.format(fmt)}  $status  ${value.durationMs} ms"
+                }
             })
             .setItemChosenCallback { restoreFromHistory(it) }
             .createPopup()

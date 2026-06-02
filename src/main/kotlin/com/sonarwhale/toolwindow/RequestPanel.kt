@@ -412,7 +412,7 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
 
     private fun updateDefaultButtonState(isDefault: Boolean) {
         isCurrentDefault = isDefault
-        requestActionsToolbar.updateActionsImmediately()
+        requestActionsToolbar.updateActionsAsync()
     }
 
 
@@ -641,7 +641,7 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
 
         saveRequest()
         requestActionsEnabled = false
-        requestActionsToolbar.updateActionsImmediately()
+        requestActionsToolbar.updateActionsAsync()
 
         val colId = RouteIndexService.getInstance(project).getCollectionId(endpoint.id) ?: ""
         val varResolver = VariableResolver.getInstance(project)
@@ -764,7 +764,7 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
 
             override fun done() {
                 requestActionsEnabled = true
-                requestActionsToolbar.updateActionsImmediately()
+                requestActionsToolbar.updateActionsAsync()
                 runCatching {
                     val result = get()
                     val (status, body, duration) = result.first
@@ -823,7 +823,7 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
 
         saveRequest()
         requestActionsEnabled = false
-        requestActionsToolbar.updateActionsImmediately()
+        requestActionsToolbar.updateActionsAsync()
 
         val colId       = RouteIndexService.getInstance(project).getCollectionId(endpoint.id) ?: ""
         val varResolver = VariableResolver.getInstance(project)
@@ -937,7 +937,7 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
 
             override fun done() {
                 requestActionsEnabled = true
-                requestActionsToolbar.updateActionsImmediately()
+                requestActionsToolbar.updateActionsAsync()
                 runCatching {
                     val result      = get()
                     val (status, body, duration) = result.first

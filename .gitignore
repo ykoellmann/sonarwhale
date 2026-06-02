@@ -50,6 +50,19 @@ testprojects/python/**/*.pyc
 testprojects/csharp/**/bin/
 testprojects/csharp/**/obj/
 
+# Plugin signing certificates — never commit these, store in GitHub Secrets
+*.pem
+*.crt
+*.key
+*.p12
+*.jks
+
 # Secrets / env files
 testprojects/**/.env
 testprojects/**/.env.local
+
+./.kotlin/
+
+# JVM crash/heap dumps
+java_pid*.hprof
+hs_err_pid*.log

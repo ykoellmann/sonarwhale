@@ -5,6 +5,15 @@
 #           build/libs/mapping.txt  (keep for crash decoding!)
 # =============================================================
 
+# ----- Processing flags --------------------------------------------------
+# Shrinking: risky for IntelliJ plugins — classes loaded via reflection would be removed.
+# Optimization: requires a complete class hierarchy (incl. JDK) to resolve superclasses;
+#               IntelliJ plugins don't ship the JDK, so this always fails.
+# Obfuscation only is the correct mode for IntelliJ plugins.
+
+-dontshrink
+-dontoptimize
+
 # ----- Attributes --------------------------------------------------------
 
 -keepattributes *Annotation*
@@ -98,6 +107,18 @@
 -dontwarn com.intellij.**
 -dontwarn org.jetbrains.**
 -dontwarn javax.**
+-dontwarn java.**
+-dontwarn sun.**
+-dontwarn com.sun.**
+-dontwarn com.google.errorprone.**
+
+-dontnote com.google.errorprone.**
+-dontnote com.sun.**
+-dontnote javax.activation.**
+
+# The IntelliJ platform classpath is intentionally incomplete (optional deps, runtime-only JARs).
+# Remaining unresolvable references after the dontwarn rules above are safe to ignore.
+-ignorewarnings
 
 # ----- Resource adaptation -----------------------------------------------
 # Updates fully-qualified class names inside XML resources after renaming.

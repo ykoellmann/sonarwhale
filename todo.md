@@ -53,10 +53,13 @@
 - [ ] Rhino Swing debugger (Debug button in RequestPanel, attach Dim to ContextFactory, step/breakpoints/variable inspection)
 - [ ] Execution delta after pre-script (show which env vars changed, final URL/headers/body vs initial)
 
+## Future Wishes
+
+- **Visueller Assertion-Builder** — No-Code UI für Response Assertions (Postman-Stil: "Status code == 200", "Body contains 'id'", "Response time < 500ms"). Sinnvoll für Nutzer die keine Scripts schreiben wollen. Aktuell abgelöst durch `pm.test()` in Pre/Post Scripts, die mächtiger sind.
+
 ## Offene Entscheidungen
 - Finaler Name (Kandidaten: Blip, Sonarwhale)
 - Monetarisierungsmodell (Freemium / kostenlos / Marketplace-Paid)
 - Standalone App als langfristiges Ziel (nach Plugin-MVP)
 
-
-Dashboard / Analytics
+## Dashboard / Analytics

@@ -61,7 +61,7 @@ class SonarwhaleDebugRunState(
 
         val processHandler = createProcessHandler(cmd, configurator)
 
-        processHandler.addProcessListener(object : com.intellij.execution.process.ProcessAdapter() {
+        processHandler.addProcessListener(object : com.intellij.execution.process.ProcessListener {
             override fun processTerminated(event: com.intellij.execution.process.ProcessEvent) {
                 if (outFile.exists()) applyResultsFromFile(outFile)
                 contextJson.parentFile?.deleteRecursively()

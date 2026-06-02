@@ -1,6 +1,8 @@
 package com.sonarwhale.toolwindow
 
 import com.intellij.icons.AllIcons
+import com.intellij.openapi.Disposable
+import com.intellij.openapi.util.Disposer
 import com.intellij.lang.Language
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.editor.EditorFactory
@@ -256,7 +258,8 @@ class BodyPanel(private val project: Project) : JPanel(BorderLayout()) {
                     }
                 }
                 externalDocListener = listener
-                doc.addDocumentListener(listener)
+                val listenerDisposable = Disposer.newDisposable()
+                doc.addDocumentListener(listener, listenerDisposable)
 
                 // Detach in beforeFileClosed, which fires before IntelliJ reverts unsaved
                 // document content — so no revert-triggered documentChanged reaches us.
@@ -264,7 +267,7 @@ class BodyPanel(private val project: Project) : JPanel(BorderLayout()) {
                 connection.subscribe(FileEditorManagerListener.FILE_EDITOR_MANAGER, object : FileEditorManagerListener {
                     override fun fileClosed(source: FileEditorManager, file: com.intellij.openapi.vfs.VirtualFile) {
                         if (file == vf) {
-                            doc.removeDocumentListener(listener)
+                            Disposer.dispose(listenerDisposable)
                             if (externalDocListener === listener) {
                                 externalDocListener = null
                                 externalDoc = null
