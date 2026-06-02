@@ -4,6 +4,8 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
+import com.sonarwhale.license.LicenseService
+import com.sonarwhale.license.PremiumFeature
 import com.sonarwhale.model.ApiEndpoint
 import com.sonarwhale.model.SavedRequest
 import java.nio.file.Path
@@ -49,12 +51,20 @@ class SonarwhaleScriptService(private val project: Project) {
                 body = body
             )
         )
+        val isPremium = LicenseService.getInstance().isUnlocked(PremiumFeature.FULL_SCRIPTS)
         val tag = endpoint.tags.firstOrNull() ?: "Default"
         val disabledScriptLevels = disabledLevels
             .mapNotNull { runCatching { ScriptLevel.valueOf(it) }.getOrNull() }
             .toSet()
-        val levels = resolver.resolvePreLevels(tag, endpoint.method.name, endpoint.path, request.name, collectionId, disabledScriptLevels)
-        runCatching { engine.executeChainLeveled(levels, ScriptPhase.PRE, ctx, console) }
+        val allLevels = resolver.resolvePreLevels(tag, endpoint.method.name, endpoint.path, request.name, collectionId, disabledScriptLevels)
+        val levels = if (isPremium) allLevels else {
+            val filtered = allLevels.filter { (level, _) -> level == ScriptLevel.GLOBAL }
+            if (filtered.size < allLevels.size) {
+                console.log(LogLevel.WARN, "Script hierarchy (tag/endpoint/request level) requires Sonarwhale Premium — only global pre-script is active")
+            }
+            filtered
+        }
+        runCatching { engine.executeChainLeveled(levels, ScriptPhase.PRE, ctx, console, isPremium) }
             .onFailure { e ->
                 console.log(LogLevel.ERROR, "Pre-script chain failed: ${e.message ?: e.javaClass.simpleName}")
             }
@@ -90,12 +100,20 @@ class SonarwhaleScriptService(private val project: Project) {
             request = scriptContext.request,
             response = response
         )
+        val isPremium = LicenseService.getInstance().isUnlocked(PremiumFeature.FULL_SCRIPTS)
         val tag = endpoint.tags.firstOrNull() ?: "Default"
         val disabledScriptLevels = disabledLevels
             .mapNotNull { runCatching { ScriptLevel.valueOf(it) }.getOrNull() }
             .toSet()
-        val levels = resolver.resolvePostLevels(tag, endpoint.method.name, endpoint.path, request.name, collectionId, disabledScriptLevels)
-        runCatching { engine.executeChainLeveled(levels, ScriptPhase.POST, postCtx, console) }
+        val allLevels = resolver.resolvePostLevels(tag, endpoint.method.name, endpoint.path, request.name, collectionId, disabledScriptLevels)
+        val levels = if (isPremium) allLevels else {
+            val filtered = allLevels.filter { (level, _) -> level == ScriptLevel.GLOBAL }
+            if (filtered.size < allLevels.size) {
+                console.log(LogLevel.WARN, "Script hierarchy (tag/endpoint/request level) requires Sonarwhale Premium — only global post-script is active")
+            }
+            filtered
+        }
+        runCatching { engine.executeChainLeveled(levels, ScriptPhase.POST, postCtx, console, isPremium) }
             .onFailure { e ->
                 console.log(LogLevel.ERROR, "Post-script chain failed: ${e.message ?: e.javaClass.simpleName}")
             }

@@ -8,4 +8,5 @@ enum class PremiumFeature {
     RESPONSE_ASSERTIONS,
     POSTMAN_EXPORT,
     TEAM_FEATURES,
+    FULL_SCRIPTS,
 }

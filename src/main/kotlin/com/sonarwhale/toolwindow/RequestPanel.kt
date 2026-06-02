@@ -18,6 +18,9 @@ import com.sonarwhale.model.AuthMode
 import com.sonarwhale.model.toJsonTemplate
 import com.sonarwhale.model.ParameterLocation
 import com.sonarwhale.model.SavedRequest
+import com.sonarwhale.license.LicenseService
+import com.sonarwhale.license.PremiumFeature
+import com.sonarwhale.license.PremiumGate
 import com.sonarwhale.script.ConsoleOutput
 import com.sonarwhale.script.ScriptLevel
 import com.sonarwhale.script.ScriptPhase
@@ -266,12 +269,17 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
         val endpoint = currentEndpoint ?: return
         val request  = currentRequest  ?: SavedRequest(name = currentRequestName)
         val scriptService = SonarwhaleScriptService.getInstance(project)
+        val isPremium = LicenseService.getInstance().isUnlocked(PremiumFeature.FULL_SCRIPTS)
         com.intellij.openapi.application.ApplicationManager.getApplication().executeOnPooledThread {
             val preExists  = scriptService.getScriptPath(ScriptPhase.PRE,  ScriptLevel.REQUEST, endpoint.tags.firstOrNull() ?: "Default", endpoint, request).exists()
             val postExists = scriptService.getScriptPath(ScriptPhase.POST, ScriptLevel.REQUEST, endpoint.tags.firstOrNull() ?: "Default", endpoint, request).exists()
             com.intellij.openapi.application.ApplicationManager.getApplication().invokeLater {
-                scriptPreBtn.font  = scriptPreBtn.font.deriveFont(if (preExists)  Font.BOLD else Font.PLAIN)
-                scriptPostBtn.font = scriptPostBtn.font.deriveFont(if (postExists) Font.BOLD else Font.PLAIN)
+                PremiumGate.applyTo(scriptPreBtn,  PremiumFeature.FULL_SCRIPTS, locked = !isPremium)
+                PremiumGate.applyTo(scriptPostBtn, PremiumFeature.FULL_SCRIPTS, locked = !isPremium)
+                if (isPremium) {
+                    scriptPreBtn.font  = scriptPreBtn.font.deriveFont(if (preExists)  Font.BOLD else Font.PLAIN)
+                    scriptPostBtn.font = scriptPostBtn.font.deriveFont(if (postExists) Font.BOLD else Font.PLAIN)
+                }
             }
         }
     }
@@ -488,6 +496,10 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
     }
 
     private fun openOrCreateScript(phase: ScriptPhase, level: ScriptLevel = ScriptLevel.REQUEST) {
+        if (!LicenseService.getInstance().isUnlocked(PremiumFeature.FULL_SCRIPTS)) {
+            LicenseService.requestLicense("Request-level scripts require Sonarwhale Premium.")
+            return
+        }
         val endpoint = currentEndpoint ?: return
         val request  = currentRequest ?: SavedRequest(name = currentRequestName)
         val scriptService = SonarwhaleScriptService.getInstance(project)

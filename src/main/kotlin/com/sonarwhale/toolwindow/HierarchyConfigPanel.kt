@@ -7,6 +7,9 @@ import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.util.ui.JBUI
+import com.sonarwhale.license.LicenseService
+import com.sonarwhale.license.PremiumFeature
+import com.sonarwhale.license.PremiumGate
 import com.sonarwhale.model.HierarchyConfig
 import com.sonarwhale.script.ScriptPhase
 import com.sonarwhale.script.SonarwhaleScriptService
@@ -83,6 +86,9 @@ class HierarchyConfigPanel(
         panel.layout = BoxLayout(panel, BoxLayout.Y_AXIS)
         panel.border = JBUI.Borders.empty(8)
 
+        val isNonGlobal = scriptContext != null && scriptContext.level != com.sonarwhale.script.ScriptLevel.GLOBAL
+        val locked = isNonGlobal && !LicenseService.getInstance().isUnlocked(PremiumFeature.FULL_SCRIPTS)
+
         val preBtn = JButton("Open Pre-Script").apply {
             alignmentX = LEFT_ALIGNMENT
             addActionListener { openScript(ScriptPhase.PRE) }
@@ -90,6 +96,11 @@ class HierarchyConfigPanel(
         val postBtn = JButton("Open Post-Script").apply {
             alignmentX = LEFT_ALIGNMENT
             addActionListener { openScript(ScriptPhase.POST) }
+        }
+
+        if (locked) {
+            PremiumGate.applyTo(preBtn, PremiumFeature.FULL_SCRIPTS, locked = true)
+            PremiumGate.applyTo(postBtn, PremiumFeature.FULL_SCRIPTS, locked = true)
         }
 
         panel.add(preBtn)
@@ -132,6 +143,12 @@ class HierarchyConfigPanel(
 
     private fun openScript(phase: ScriptPhase) {
         val ctx = scriptContext ?: return
+        if (ctx.level != com.sonarwhale.script.ScriptLevel.GLOBAL &&
+            !LicenseService.getInstance().isUnlocked(PremiumFeature.FULL_SCRIPTS)
+        ) {
+            LicenseService.requestLicense("Script hierarchy (tag/endpoint level) requires Sonarwhale Premium.")
+            return
+        }
         val scriptService = SonarwhaleScriptService.getInstance(project)
         ApplicationManager.getApplication().executeOnPooledThread {
             val path = scriptService.getOrCreateScript(

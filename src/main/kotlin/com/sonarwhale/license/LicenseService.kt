@@ -20,7 +20,7 @@ class LicenseService {
     @Volatile private var cachedStatus: LicenseStatus = LicenseStatus.FREE
     @Volatile private var lastCheck: Instant = Instant.EPOCH
 
-    fun getStatus(): LicenseStatus {
+fun getStatus(): LicenseStatus {
         val now = Instant.now()
         if (now.isBefore(lastCheck.plusSeconds(CACHE_TTL_SECONDS))) return cachedStatus
 

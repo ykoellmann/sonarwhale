@@ -30,17 +30,19 @@ class ScriptEngine {
     fun executeChain(
         scripts: List<ScriptFile>,
         context: ScriptContext,
-        console: ConsoleOutput = ConsoleOutput()
+        console: ConsoleOutput = ConsoleOutput(),
+        isPremium: Boolean = true
     ) {
         if (scripts.isEmpty()) return
-        executeWithScope(scripts.map { Pair(it.level, it) }, context, console)
+        executeWithScope(scripts.map { Pair(it.level, it) }, context, console, isPremium = isPremium)
     }
 
     fun executeChainLeveled(
         levels: List<Pair<ScriptLevel, ScriptFile?>>,
         phase: ScriptPhase,
         context: ScriptContext,
-        console: ConsoleOutput = ConsoleOutput()
+        console: ConsoleOutput = ConsoleOutput(),
+        isPremium: Boolean = true
     ) {
         if (levels.isEmpty()) return
         val phaseName = if (phase == ScriptPhase.PRE) "pre" else "post"
@@ -53,14 +55,15 @@ class ScriptEngine {
             }
             return
         }
-        executeWithScope(levels, context, console, phaseName)
+        executeWithScope(levels, context, console, phaseName, isPremium)
     }
 
     private fun executeWithScope(
         levels: List<Pair<ScriptLevel, ScriptFile?>>,
         context: ScriptContext,
         console: ConsoleOutput,
-        phaseName: String = ""
+        phaseName: String = "",
+        isPremium: Boolean = true
     ) {
         val prevCl = Thread.currentThread().contextClassLoader
         Thread.currentThread().contextClassLoader = ScriptEngine::class.java.classLoader
@@ -70,7 +73,7 @@ class ScriptEngine {
             cx.languageVersion = Context.VERSION_ES6
             try {
                 val scope = cx.initStandardObjects()
-                ScriptableObject.putProperty(scope, "sw", buildSwObject(cx, scope, context, console))
+                ScriptableObject.putProperty(scope, "sw", buildSwObject(cx, scope, context, console, isPremium))
                 ScriptableObject.putProperty(scope, "console", buildConsoleObject(console))
 
                 for ((level, script) in levels) {
@@ -114,10 +117,10 @@ class ScriptEngine {
         return obj
     }
 
-    private fun buildSwObject(cx: Context, scope: Scriptable, context: ScriptContext, console: ConsoleOutput): NativeObject {
+    private fun buildSwObject(cx: Context, scope: Scriptable, context: ScriptContext, console: ConsoleOutput, isPremium: Boolean = true): NativeObject {
         val sw = NativeObject()
 
-        // ── sw.env ───────────────────────────────────────────────────────────
+        // ── sw.env (always available) ────────────────────────────────────────
         val env = NativeObject()
         env.put("get", env, rhinoFn { _, _, args ->
             val key = args.getOrNull(0)?.toString() ?: return@rhinoFn null
@@ -131,7 +134,7 @@ class ScriptEngine {
         })
         sw.put("env", sw, env)
 
-        // ── sw.request ───────────────────────────────────────────────────────
+        // ── sw.request (always available) ────────────────────────────────────
         val req = NativeObject()
         req.put("url", req, context.request.url)
         req.put("method", req, context.request.method)
@@ -155,69 +158,99 @@ class ScriptEngine {
         })
         sw.put("request", sw, req)
 
-        // ── sw.response ──────────────────────────────────────────────────────
-        context.response?.let { resp ->
-            val res = NativeObject()
-            res.put("status", res, resp.status)
-            res.put("body", res, resp.body)
-            val respHeaders = NativeObject()
-            resp.headers.forEach { (k, v) -> respHeaders.put(k, respHeaders, v) }
-            res.put("headers", res, respHeaders)
-            res.put("json", res, rhinoFn { c, s, _ ->
-                runCatching { c.evaluateString(s, "(${resp.body})", "json-parse", 1, null) }
-                    .getOrDefault(null)
-            })
-            sw.put("response", sw, res)
-        }
-
-        // ── sw.http ──────────────────────────────────────────────────────────
-        val http = NativeObject()
-        http.put("get", http, rhinoFn { c, s, args ->
-            val url     = args.getOrNull(0)?.toString() ?: return@rhinoFn null
-            val headers = (args.getOrNull(1) as? NativeObject)?.toHeaderMap() ?: emptyMap()
-            makeHttpCall(c, s, "GET", url, null, headers, console)
-        })
-        http.put("post", http, rhinoFn { c, s, args ->
-            val url     = args.getOrNull(0)?.toString() ?: return@rhinoFn null
-            val body    = args.getOrNull(1)?.toString() ?: ""
-            val headers = (args.getOrNull(2) as? NativeObject)?.toHeaderMap() ?: emptyMap()
-            makeHttpCall(c, s, "POST", url, body, headers, console)
-        })
-        http.put("request", http, rhinoFn { c, s, args ->
-            val method  = args.getOrNull(0)?.toString()?.uppercase() ?: "GET"
-            val url     = args.getOrNull(1)?.toString() ?: return@rhinoFn null
-            val body    = args.getOrNull(2)?.toString()
-            val headers = (args.getOrNull(3) as? NativeObject)?.toHeaderMap() ?: emptyMap()
-            makeHttpCall(c, s, method, url, body, headers, console)
-        })
-        sw.put("http", sw, http)
-
-        // ── sw.test ──────────────────────────────────────────────────────────
-        sw.put("test", sw, rhinoFn { c, s, args ->
-            val name = args.getOrNull(0)?.toString() ?: "unnamed"
-            val fn   = args.getOrNull(1) as? Function
-            val result = if (fn == null) {
-                TestResult(name, false, "test() requires a function as second argument")
-            } else {
-                runCatching { fn.call(c, s, s, emptyArray()) }
-                    .fold(
-                        onSuccess = { returnVal ->
-                            // treat explicit `return false` (Rhino returns java.lang.Boolean false) as failure
-                            val passed = returnVal != java.lang.Boolean.FALSE
-                            TestResult(name, passed, if (passed) null else "Test function returned false")
-                        },
-                        onFailure = { e -> TestResult(name, false, e.message ?: e.javaClass.simpleName) }
-                    )
+        if (isPremium) {
+            // ── sw.response (premium, post-scripts only) ─────────────────────
+            context.response?.let { resp ->
+                val res = NativeObject()
+                res.put("status", res, resp.status)
+                res.put("body", res, resp.body)
+                val respHeaders = NativeObject()
+                resp.headers.forEach { (k, v) -> respHeaders.put(k, respHeaders, v) }
+                res.put("headers", res, respHeaders)
+                res.put("json", res, rhinoFn { c, s, _ ->
+                    runCatching { c.evaluateString(s, "(${resp.body})", "json-parse", 1, null) }
+                        .getOrDefault(null)
+                })
+                sw.put("response", sw, res)
             }
-            context.testResults.add(result)
-            null
-        })
 
-        // ── sw.expect ────────────────────────────────────────────────────────
-        sw.put("expect", sw, rhinoFn { _, _, args ->
-            val actual = args.getOrNull(0)
-            buildExpectObject(actual, context)
-        })
+            // ── sw.http (premium) ─────────────────────────────────────────────
+            val http = NativeObject()
+            http.put("get", http, rhinoFn { c, s, args ->
+                val url     = args.getOrNull(0)?.toString() ?: return@rhinoFn null
+                val headers = (args.getOrNull(1) as? NativeObject)?.toHeaderMap() ?: emptyMap()
+                makeHttpCall(c, s, "GET", url, null, headers, console)
+            })
+            http.put("post", http, rhinoFn { c, s, args ->
+                val url     = args.getOrNull(0)?.toString() ?: return@rhinoFn null
+                val body    = args.getOrNull(1)?.toString() ?: ""
+                val headers = (args.getOrNull(2) as? NativeObject)?.toHeaderMap() ?: emptyMap()
+                makeHttpCall(c, s, "POST", url, body, headers, console)
+            })
+            http.put("request", http, rhinoFn { c, s, args ->
+                val method  = args.getOrNull(0)?.toString()?.uppercase() ?: "GET"
+                val url     = args.getOrNull(1)?.toString() ?: return@rhinoFn null
+                val body    = args.getOrNull(2)?.toString()
+                val headers = (args.getOrNull(3) as? NativeObject)?.toHeaderMap() ?: emptyMap()
+                makeHttpCall(c, s, method, url, body, headers, console)
+            })
+            sw.put("http", sw, http)
+
+            // ── sw.test (premium) ─────────────────────────────────────────────
+            sw.put("test", sw, rhinoFn { c, s, args ->
+                val name = args.getOrNull(0)?.toString() ?: "unnamed"
+                val fn   = args.getOrNull(1) as? Function
+                val result = if (fn == null) {
+                    TestResult(name, false, "test() requires a function as second argument")
+                } else {
+                    runCatching { fn.call(c, s, s, emptyArray()) }
+                        .fold(
+                            onSuccess = { returnVal ->
+                                val passed = returnVal != java.lang.Boolean.FALSE
+                                TestResult(name, passed, if (passed) null else "Test function returned false")
+                            },
+                            onFailure = { e -> TestResult(name, false, e.message ?: e.javaClass.simpleName) }
+                        )
+                }
+                context.testResults.add(result)
+                null
+            })
+
+            // ── sw.expect (premium) ───────────────────────────────────────────
+            sw.put("expect", sw, rhinoFn { _, _, args ->
+                val actual = args.getOrNull(0)
+                buildExpectObject(actual, context)
+            })
+        } else {
+            // Free tier — inject stubs that explain the premium requirement
+            val notice = "requires Sonarwhale Premium"
+            if (context.response != null) {
+                val stub = NativeObject()
+                stub.put("status", stub, 0)
+                stub.put("body", stub, "")
+                stub.put("headers", stub, NativeObject())
+                stub.put("json", stub, rhinoFn { _, _, _ ->
+                    console.log(LogLevel.WARN, "sw.response $notice")
+                    null
+                })
+                sw.put("response", sw, stub)
+            }
+            val noOpExpect = NativeObject().also { no ->
+                listOf("toBe", "toEqual", "toBeTruthy", "toBeFalsy", "toContain").forEach { m ->
+                    no.put(m, no, rhinoFn { _, _, _ -> null })
+                }
+            }
+            val httpStub = NativeObject()
+            listOf("get", "post", "request").forEach { m ->
+                httpStub.put(m, httpStub, rhinoFn { _, _, _ ->
+                    console.log(LogLevel.WARN, "sw.http $notice")
+                    null
+                })
+            }
+            sw.put("http", sw, httpStub)
+            sw.put("test", sw, rhinoFn { _, _, _ -> console.log(LogLevel.WARN, "sw.test $notice"); null })
+            sw.put("expect", sw, rhinoFn { _, _, _ -> console.log(LogLevel.WARN, "sw.expect $notice"); noOpExpect })
+        }
 
         return sw
     }
