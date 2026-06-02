@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-06-02
+
+### feat
+- Pre/Post Scripts are now partially available in the Free tier: global-level scripts (`pre.js` / `post.js` in `.sonarwhale/scripts/`) can use `sw.env` and `sw.request`
+- Script hierarchy (tag / endpoint / request level) and advanced APIs (`sw.test`, `sw.expect`, `sw.http`, `sw.response`) require Sonarwhale Premium
+- Free-tier scripts that attempt to use premium APIs receive a clear message in the console output instead of a raw JavaScript error
+
 ## [1.0.0] - 2026-06-02
 ### feat
 - Initial release

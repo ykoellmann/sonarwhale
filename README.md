@@ -52,9 +52,25 @@ Custom paths can be configured per environment.
 
 Roux the Narwhal — because narwhals have the best echolocation in nature, and Sonarwhale finds your endpoints like sonar finds submarines.
 
+## Free vs. Premium
+
+| Feature | Free | Premium |
+|---|---|---|
+| Endpoint discovery (OpenAPI) | ✓ | ✓ |
+| HTTP client | ✓ | ✓ |
+| Gutter icons & Jump-to-Source | ✓ | ✓ |
+| Environments | 1 | Unlimited |
+| Run history | Last 10 | Unlimited |
+| Pre/Post Scripts — global level (`sw.env`, `sw.request`) | ✓ | ✓ |
+| Pre/Post Scripts — full hierarchy + `sw.test`, `sw.http`, `sw.response` | ✗ | ✓ |
+| Postman Collection export | ✗ | ✓ |
+| Endpoint diff tracking | ✗ | ✓ |
+
+[Get Sonarwhale Premium →](https://plugins.jetbrains.com/plugin/32058-sonarwhale)
+
 ## Status
 
-Early development. Currently targeting JetBrains Rider 2025.3+ with ASP.NET Core as the first fully supported stack.
+Available on the JetBrains Marketplace. Targets JetBrains Rider and IntelliJ IDEA (2024.1+). First-class support for ASP.NET Core, FastAPI, Spring Boot, and Express.
 
 ## Pre/Post Scripts
 
@@ -62,7 +78,19 @@ Sonarwhale supports JavaScript scripts that run before and after each HTTP reque
 
 A `sw.d.ts` type definition file is generated automatically so the IDE can provide autocomplete for the `sw` API.
 
-### Auth: fetch a token before every request (global pre-script)
+### Inject a token before every request (global pre-script, Free + Premium)
+
+`.sonarwhale/scripts/pre.js`
+
+```js
+// Read a token from the environment and attach it to every request.
+const token = sw.env.get("token");
+if (token) {
+  sw.request.setHeader("Authorization", "Bearer " + token);
+}
+```
+
+### Fetch a token dynamically before every request (global pre-script, Premium)
 
 `.sonarwhale/scripts/pre.js`
 
@@ -138,21 +166,21 @@ This stops the global `pre.js` (which sets `Authorization`) from running for thi
 
 ### Available API
 
-| Object | What it does |
-|---|---|
-| `sw.env.get(key)` | Read an environment variable |
-| `sw.env.set(key, value)` | Write an environment variable (persisted to the active environment) |
-| `sw.request.setHeader(k, v)` | Add or override a request header |
-| `sw.request.setBody(body)` | Replace the request body |
-| `sw.request.setUrl(url)` | Replace the request URL |
-| `sw.response.status` | HTTP status code (post-scripts only) |
-| `sw.response.json()` | Parse the response body as JSON (post-scripts only) |
-| `sw.http.get(url, headers?)` | Synchronous GET request |
-| `sw.http.post(url, body, headers?)` | Synchronous POST request |
-| `sw.http.request(method, url, body?, headers?)` | Any HTTP method |
-| `sw.test(name, fn)` | Assert — shown in the Tests tab; throw or return false to fail |
-| `sw.expect(value).toBe(expected)` | Inline assertion |
+| Object | What it does | Tier |
+|---|---|---|
+| `sw.env.get(key)` | Read an environment variable | Free |
+| `sw.env.set(key, value)` | Write an environment variable (persisted to the active environment) | Free |
+| `sw.request.setHeader(k, v)` | Add or override a request header | Free |
+| `sw.request.setBody(body)` | Replace the request body | Free |
+| `sw.request.setUrl(url)` | Replace the request URL | Free |
+| `sw.response.status` | HTTP status code (post-scripts only) | Premium |
+| `sw.response.json()` | Parse the response body as JSON (post-scripts only) | Premium |
+| `sw.http.get(url, headers?)` | Synchronous GET request | Premium |
+| `sw.http.post(url, body, headers?)` | Synchronous POST request | Premium |
+| `sw.http.request(method, url, body?, headers?)` | Any HTTP method | Premium |
+| `sw.test(name, fn)` | Assert — shown in the Tests tab; throw or return false to fail | Premium |
+| `sw.expect(value).toBe(expected)` | Inline assertion | Premium |
 
 ## License
 
-TBD
+Copyright (c) 2026 Yannik Köllmann. All rights reserved. See [LICENSE](LICENSE).
