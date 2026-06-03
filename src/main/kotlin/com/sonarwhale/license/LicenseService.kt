@@ -2,9 +2,11 @@ package com.sonarwhale.license
 
 import com.intellij.ide.BrowserUtil
 import com.intellij.openapi.actionSystem.ActionManager
-import com.intellij.openapi.actionSystem.ActionPlaces
+import com.intellij.openapi.actionSystem.ActionUiKind
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.DataContext
+import com.intellij.openapi.actionSystem.Presentation
+import com.intellij.openapi.actionSystem.ex.ActionUtil
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.components.Service
@@ -67,24 +69,25 @@ fun getStatus(): LicenseStatus {
                     BrowserUtil.browse(MARKETPLACE_URL)
                     return@invokeLater
                 }
-                val action = ActionManager.getInstance().getAction("RegisterPlugins")
+                val actionManager = ActionManager.getInstance()
+                // "RegisterPlugins" = open-source IDEs, "Register" = commercial IDEs (Rider, IDEA Ultimate, …)
+                val action = actionManager.getAction("RegisterPlugins")
+                    ?: actionManager.getAction("Register")
                 if (action == null) {
                     BrowserUtil.browse(MARKETPLACE_URL)
                     return@invokeLater
                 }
                 val dataContext = DataContext { dataId ->
                     when (dataId) {
-                        "productCode" -> PRODUCT_CODE
-                        "message"     -> message
-                        else          -> null
+                        "register.product-descriptor.code" -> PRODUCT_CODE
+                        "register.message"                 -> message
+                        else                               -> null
                     }
                 }
-                val presentation = action.templatePresentation.clone()
-                val event = AnActionEvent(
-                    null, dataContext, ActionPlaces.UNKNOWN,
-                    presentation, ActionManager.getInstance(), 0
+                ActionUtil.performAction(
+                    action,
+                    AnActionEvent.createEvent(dataContext, Presentation(), "", ActionUiKind.NONE, null)
                 )
-                action.actionPerformed(event)
             }, ModalityState.nonModal())
         }
     }
