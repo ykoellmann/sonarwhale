@@ -896,8 +896,15 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
                 // Each script is launched with --inspect-brk on a fresh port.
                 // We use a CountDownLatch to block the background thread until the script finishes.
                 val debugNotified = java.util.concurrent.atomic.AtomicBoolean(false)
+                val isPremium = LicenseService.getInstance().isUnlocked(PremiumFeature.FULL_SCRIPTS)
                 val resolver  = scriptService.getScriptsResolver()
-                val preLevels = resolver.resolvePreLevels(tag, endpoint.method.name, endpoint.path, savedRequest.name, colId, disabledPreLevels)
+                val allPreLevels = resolver.resolvePreLevels(tag, endpoint.method.name, endpoint.path, savedRequest.name, colId, disabledPreLevels)
+                val preLevels = if (isPremium) allPreLevels else {
+                    val filtered = allPreLevels.filter { (level, _) -> level == com.sonarwhale.script.ScriptLevel.GLOBAL }
+                    if (filtered.size < allPreLevels.size)
+                        consoleOutput.log(com.sonarwhale.script.LogLevel.WARN, "Script hierarchy (tag/endpoint/request level) requires Sonarwhale Premium — only global pre-script is active")
+                    filtered
+                }
                 runDebugScripts(preLevels, ctx, consoleOutput, debugNotified)
 
                 val postScriptVarMap = varMap.toMutableMap().also { it.putAll(ctx.envSnapshot) }
@@ -937,7 +944,13 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
                     request     = ctx.request,
                     response    = com.sonarwhale.script.ResponseContext(response.statusCode(), responseHeaders, response.body())
                 )
-                val postLevels = resolver.resolvePostLevels(tag, endpoint.method.name, endpoint.path, savedRequest.name, colId, disabledPostLevels)
+                val allPostLevels = resolver.resolvePostLevels(tag, endpoint.method.name, endpoint.path, savedRequest.name, colId, disabledPostLevels)
+                val postLevels = if (isPremium) allPostLevels else {
+                    val filtered = allPostLevels.filter { (level, _) -> level == com.sonarwhale.script.ScriptLevel.GLOBAL }
+                    if (filtered.size < allPostLevels.size)
+                        consoleOutput.log(com.sonarwhale.script.LogLevel.WARN, "Script hierarchy (tag/endpoint/request level) requires Sonarwhale Premium — only global post-script is active")
+                    filtered
+                }
                 runDebugScripts(postLevels, postCtx, consoleOutput, debugNotified)
 
                 scriptService.flushEnvChangesPublic(postCtx.envSnapshot, varMap, colId)
@@ -983,6 +996,7 @@ class RequestPanel(private val project: Project) : JPanel(BorderLayout()) {
             ) {
                 for ((_, scriptFile) in levels) {
                     if (scriptFile == null) continue
+                    console.scriptStart(scriptFile)
                     val latch = java.util.concurrent.CountDownLatch(1)
 
                     // ScriptDebugLauncher muss auf dem EDT aufgerufen werden.
