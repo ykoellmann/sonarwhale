@@ -158,6 +158,28 @@ class ScriptEngine {
         })
         sw.put("request", sw, req)
 
+        // ── sw.http (always available — prep, not automation) ────────────────
+        val http = NativeObject()
+        http.put("get", http, rhinoFn { c, s, args ->
+            val url     = args.getOrNull(0)?.toString() ?: return@rhinoFn null
+            val headers = (args.getOrNull(1) as? NativeObject)?.toHeaderMap() ?: emptyMap()
+            makeHttpCall(c, s, "GET", url, null, headers, console)
+        })
+        http.put("post", http, rhinoFn { c, s, args ->
+            val url     = args.getOrNull(0)?.toString() ?: return@rhinoFn null
+            val body    = args.getOrNull(1)?.toString() ?: ""
+            val headers = (args.getOrNull(2) as? NativeObject)?.toHeaderMap() ?: emptyMap()
+            makeHttpCall(c, s, "POST", url, body, headers, console)
+        })
+        http.put("request", http, rhinoFn { c, s, args ->
+            val method  = args.getOrNull(0)?.toString()?.uppercase() ?: "GET"
+            val url     = args.getOrNull(1)?.toString() ?: return@rhinoFn null
+            val body    = args.getOrNull(2)?.toString()
+            val headers = (args.getOrNull(3) as? NativeObject)?.toHeaderMap() ?: emptyMap()
+            makeHttpCall(c, s, method, url, body, headers, console)
+        })
+        sw.put("http", sw, http)
+
         if (isPremium) {
             // ── sw.response (premium, post-scripts only) ─────────────────────
             context.response?.let { resp ->
@@ -173,28 +195,6 @@ class ScriptEngine {
                 })
                 sw.put("response", sw, res)
             }
-
-            // ── sw.http (premium) ─────────────────────────────────────────────
-            val http = NativeObject()
-            http.put("get", http, rhinoFn { c, s, args ->
-                val url     = args.getOrNull(0)?.toString() ?: return@rhinoFn null
-                val headers = (args.getOrNull(1) as? NativeObject)?.toHeaderMap() ?: emptyMap()
-                makeHttpCall(c, s, "GET", url, null, headers, console)
-            })
-            http.put("post", http, rhinoFn { c, s, args ->
-                val url     = args.getOrNull(0)?.toString() ?: return@rhinoFn null
-                val body    = args.getOrNull(1)?.toString() ?: ""
-                val headers = (args.getOrNull(2) as? NativeObject)?.toHeaderMap() ?: emptyMap()
-                makeHttpCall(c, s, "POST", url, body, headers, console)
-            })
-            http.put("request", http, rhinoFn { c, s, args ->
-                val method  = args.getOrNull(0)?.toString()?.uppercase() ?: "GET"
-                val url     = args.getOrNull(1)?.toString() ?: return@rhinoFn null
-                val body    = args.getOrNull(2)?.toString()
-                val headers = (args.getOrNull(3) as? NativeObject)?.toHeaderMap() ?: emptyMap()
-                makeHttpCall(c, s, method, url, body, headers, console)
-            })
-            sw.put("http", sw, http)
 
             // ── sw.test (premium) ─────────────────────────────────────────────
             sw.put("test", sw, rhinoFn { c, s, args ->
@@ -240,14 +240,6 @@ class ScriptEngine {
                     no.put(m, no, rhinoFn { _, _, _ -> null })
                 }
             }
-            val httpStub = NativeObject()
-            listOf("get", "post", "request").forEach { m ->
-                httpStub.put(m, httpStub, rhinoFn { _, _, _ ->
-                    console.log(LogLevel.WARN, "sw.http $notice")
-                    null
-                })
-            }
-            sw.put("http", sw, httpStub)
             sw.put("test", sw, rhinoFn { _, _, _ -> console.log(LogLevel.WARN, "sw.test $notice"); null })
             sw.put("expect", sw, rhinoFn { _, _, _ -> console.log(LogLevel.WARN, "sw.expect $notice"); noOpExpect })
         }

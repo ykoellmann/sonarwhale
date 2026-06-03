@@ -143,6 +143,21 @@ class SonarwhaleDebugRunState(
                 val error  = obj.get("error")?.takeIf { !it.isJsonNull }?.asString
                 context.testResults.add(TestResult(name, passed, error))
             }
+            root.getAsJsonArray("httpLogs")?.forEach { el ->
+                val obj             = el.asJsonObject
+                val method          = obj.get("method")?.asString ?: ""
+                val url             = obj.get("url")?.asString ?: ""
+                val status          = obj.get("status")?.asInt ?: 0
+                val durationMs      = obj.get("durationMs")?.asLong ?: 0L
+                val reqHeaders      = obj.getAsJsonObject("requestHeaders")?.entrySet()
+                    ?.associate { (k, v) -> k to v.asString } ?: emptyMap()
+                val reqBody         = obj.get("requestBody")?.takeIf { !it.isJsonNull }?.asString
+                val respHeaders     = obj.getAsJsonObject("responseHeaders")?.entrySet()
+                    ?.associate { (k, v) -> k to v.asString } ?: emptyMap()
+                val respBody        = obj.get("responseBody")?.asString ?: ""
+                val error           = obj.get("error")?.takeIf { !it.isJsonNull }?.asString
+                console.http(method, url, status, durationMs, reqHeaders, reqBody, respHeaders, respBody, error)
+            }
         } catch (e: Exception) {
             console.log(LogLevel.ERROR, "Fehler beim Lesen der Debug-Ergebnisse: ${e.message}")
         }

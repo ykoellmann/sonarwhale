@@ -13,11 +13,9 @@
 
 'use strict';
 
-const fs   = require('fs');
-const path = require('path');
-const http = require('http');
-const https = require('https');
-const vm   = require('vm');
+const fs     = require('fs');
+const path   = require('path');
+const vm     = require('vm');
 const Module = require('module');
 
 // ── Args ──────────────────────────────────────────────────────────────────────
@@ -37,43 +35,69 @@ const request  = Object.assign({}, ctx.request, {
 const testResults = [];
 
 // ── sw.http ───────────────────────────────────────────────────────────────────
-function swHttpRequest(method, url, body, headers) {
-    return new Promise((resolve) => {
-        let parsed;
-        try { parsed = new URL(url); }
-        catch (e) { resolve({ status: 0, headers: {}, body: '', error: `Invalid URL: ${url}`, json: () => null }); return; }
+// Synchronous HTTP via spawnSync so user scripts can write `var res = sw.http.post(...)`
+// without async/await — matching the behaviour of the Rhino engine in run mode.
+const { spawnSync } = require('child_process');
 
-        const isHttps = parsed.protocol === 'https:';
-        const lib     = isHttps ? https : http;
-        const bodyBuf = body ? Buffer.from(body, 'utf8') : null;
-        const reqHeaders = Object.assign({}, headers || {});
-        if (bodyBuf) reqHeaders['Content-Length'] = bodyBuf.length;
+const httpLogs = [];
 
-        const options = {
-            hostname: parsed.hostname,
-            port:     parsed.port || (isHttps ? 443 : 80),
-            path:     parsed.pathname + (parsed.search || ''),
-            method:   method.toUpperCase(),
-            headers:  reqHeaders
-        };
-
-        const req = lib.request(options, res => {
-            const chunks = [];
-            res.on('data', c => chunks.push(c));
-            res.on('end', () => {
-                const responseBody = Buffer.concat(chunks).toString('utf8');
-                const respHeaders  = {};
-                for (const [k, v] of Object.entries(res.headers || {})) {
-                    respHeaders[k] = Array.isArray(v) ? v[0] : v;
-                }
-                resolve({ status: res.statusCode, headers: respHeaders, body: responseBody,
-                    json: () => JSON.parse(responseBody) });
-            });
-        });
-        req.on('error', err => resolve({ status: 0, headers: {}, body: '', error: err.message, json: () => null }));
-        if (bodyBuf) req.write(bodyBuf);
-        req.end();
+const SYNC_HTTP_SCRIPT = `
+'use strict';
+const http = require('http'), https = require('https');
+const a = JSON.parse(process.env.SW_HTTP_ARGS);
+let parsed;
+try { parsed = new URL(a.url); }
+catch (e) { process.stdout.write(JSON.stringify({ status: 0, headers: {}, body: '', error: 'Invalid URL: ' + a.url })); process.exit(0); }
+const lib = parsed.protocol === 'https:' ? https : http;
+const bodyBuf = a.body ? Buffer.from(a.body, 'utf8') : null;
+const hdrs = Object.assign({}, a.headers || {});
+if (bodyBuf) hdrs['Content-Length'] = bodyBuf.length;
+const req = lib.request({
+    hostname: parsed.hostname,
+    port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
+    path: parsed.pathname + (parsed.search || ''),
+    method: a.method.toUpperCase(),
+    headers: hdrs
+}, res => {
+    const chunks = [];
+    res.on('data', c => chunks.push(c));
+    res.on('end', () => {
+        const body = Buffer.concat(chunks).toString('utf8');
+        const respHeaders = {};
+        for (const [k, v] of Object.entries(res.headers || {}))
+            respHeaders[k] = Array.isArray(v) ? v[0] : v;
+        process.stdout.write(JSON.stringify({ status: res.statusCode, headers: respHeaders, body }));
     });
+});
+req.on('error', err => { process.stdout.write(JSON.stringify({ status: 0, headers: {}, body: '', error: err.message })); });
+if (bodyBuf) req.write(bodyBuf);
+req.end();
+`;
+
+function swHttpRequest(method, url, body, headers) {
+    const start = Date.now();
+    const args = JSON.stringify({ method, url, body: body || null, headers: headers || {} });
+    const result = spawnSync(process.execPath, ['-e', SYNC_HTTP_SCRIPT], {
+        env: Object.assign({}, process.env, { SW_HTTP_ARGS: args }),
+        timeout: 30000,
+        encoding: 'utf8'
+    });
+    const duration = Date.now() - start;
+    if (result.error || result.status !== 0) {
+        const err = (result.stderr || String(result.error || 'unknown error')).trim();
+        process.stderr.write('[sw.http] subprocess failed: ' + err + '\n');
+        httpLogs.push({ method, url, status: 0, durationMs: duration, requestHeaders: headers || {}, requestBody: body || null, responseHeaders: {}, responseBody: '', error: err });
+        return { status: 0, headers: {}, body: '', error: err, json: () => null };
+    }
+    try {
+        const parsed = JSON.parse(result.stdout);
+        httpLogs.push({ method, url, status: parsed.status, durationMs: duration, requestHeaders: headers || {}, requestBody: body || null, responseHeaders: parsed.headers || {}, responseBody: parsed.body || '', error: null });
+        return Object.assign(parsed, { json: () => JSON.parse(parsed.body) });
+    } catch (e) {
+        process.stderr.write('[sw.http] failed to parse response: ' + e.message + ' | stdout: ' + result.stdout + '\n');
+        httpLogs.push({ method, url, status: 0, durationMs: duration, requestHeaders: headers || {}, requestBody: body || null, responseHeaders: {}, responseBody: result.stdout, error: e.message });
+        return { status: 0, headers: {}, body: result.stdout, error: 'Failed to parse response: ' + e.message, json: () => null };
+    }
 }
 
 // ── sw global object ──────────────────────────────────────────────────────────
@@ -174,7 +198,7 @@ let scriptError = null;
     Module.prototype._compile = originalCompile;
 
     // ── Write results ─────────────────────────────────────────────────────────
-    const out = { env: envMap, request, testResults };
+    const out = { env: envMap, request, testResults, httpLogs };
     const outPath = contextJsonPath.replace(/\.json$/, '.out.json');
     try {
         fs.writeFileSync(outPath, JSON.stringify(out, null, 2), 'utf8');

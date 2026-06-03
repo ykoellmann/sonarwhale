@@ -148,6 +148,8 @@ intellijPlatform {
 
 
 tasks.patchPluginXml {
+    sinceBuild.set("261")
+    untilBuild.set("261.*")
     val changelogText = file("${rootDir}/CHANGELOG.md").readText()
     val changelogMatches = Regex("(?s)(-.+?)(?=##|\$)").findAll(changelogText)
 

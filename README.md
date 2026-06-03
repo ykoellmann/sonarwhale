@@ -2,6 +2,8 @@
 
 A JetBrains IDE plugin for testing your API endpoints during development — without leaving the editor.
 
+![Sonarwhale in action](media/demo.gif)
+
 ## What is Sonarwhale?
 
 Sonarwhale is a development-time HTTP testing tool that sits inside your IDE. It connects to your project's OpenAPI spec, discovers your endpoints automatically, and lets you fire requests right from the editor. No tab switching, no copy-pasting routes, no keeping a separate tool in sync with your code.
@@ -27,6 +29,8 @@ When your API changes, Sonarwhale picks it up on the next refresh and shows you 
 - **Fallback caching** — if the dev server is down, Sonarwhale keeps working from the last known state
 - **Postman-compatible import/export** for when you do need to share collections
 - **Local state** stored in `.idea/` — no account, no cloud, no setup
+
+![Sonarwhale tool window](media/screenshot-overview.png)
 
 ## How It Works
 
@@ -61,8 +65,8 @@ Roux the Narwhal — because narwhals have the best echolocation in nature, and 
 | Gutter icons & Jump-to-Source | ✓ | ✓ |
 | Environments | 1 | Unlimited |
 | Run history | Last 10 | Unlimited |
-| Pre/Post Scripts — global level (`sw.env`, `sw.request`) | ✓ | ✓ |
-| Pre/Post Scripts — full hierarchy + `sw.test`, `sw.http`, `sw.response` | ✗ | ✓ |
+| Pre/Post Scripts — global level (`sw.env`, `sw.request`, `sw.http`) | ✓ | ✓ |
+| Pre/Post Scripts — full hierarchy + `sw.test`, `sw.response` | ✗ | ✓ |
 | Postman Collection export | ✗ | ✓ |
 | Endpoint diff tracking | ✗ | ✓ |
 
@@ -78,6 +82,9 @@ Sonarwhale supports JavaScript scripts that run before and after each HTTP reque
 
 A `sw.d.ts` type definition file is generated automatically so the IDE can provide autocomplete for the `sw` API.
 
+![Pre-script editor with variables](media/screenshot-scripts.png)
+![Request body editor](media/screenshot-body.png)
+
 ### Inject a token before every request (global pre-script, Free + Premium)
 
 `.sonarwhale/scripts/pre.js`
@@ -90,7 +97,7 @@ if (token) {
 }
 ```
 
-### Fetch a token dynamically before every request (global pre-script, Premium)
+### Fetch a token dynamically before every request (global pre-script, Free + Premium)
 
 `.sonarwhale/scripts/pre.js`
 
@@ -175,9 +182,9 @@ This stops the global `pre.js` (which sets `Authorization`) from running for thi
 | `sw.request.setUrl(url)` | Replace the request URL | Free |
 | `sw.response.status` | HTTP status code (post-scripts only) | Premium |
 | `sw.response.json()` | Parse the response body as JSON (post-scripts only) | Premium |
-| `sw.http.get(url, headers?)` | Synchronous GET request | Premium |
-| `sw.http.post(url, body, headers?)` | Synchronous POST request | Premium |
-| `sw.http.request(method, url, body?, headers?)` | Any HTTP method | Premium |
+| `sw.http.get(url, headers?)` | Synchronous GET request | Free |
+| `sw.http.post(url, body, headers?)` | Synchronous POST request | Free |
+| `sw.http.request(method, url, body?, headers?)` | Any HTTP method | Free |
 | `sw.test(name, fn)` | Assert — shown in the Tests tab; throw or return false to fail | Premium |
 | `sw.expect(value).toBe(expected)` | Inline assertion | Premium |
 
