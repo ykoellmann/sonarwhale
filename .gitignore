@@ -66,3 +66,7 @@ testprojects/**/.env.local
 # JVM crash/heap dumps
 java_pid*.hprof
 hs_err_pid*.log
+
+.claude/
+
+todo.md
