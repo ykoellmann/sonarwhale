@@ -43,19 +43,13 @@ fun getStatus(): LicenseStatus {
     fun isUnlocked(feature: PremiumFeature): Boolean = isPremium
 
     companion object {
-        // TODO Phase D: replace with actual product code after JetBrains Marketplace registration
         const val PRODUCT_CODE = "PSONARWHALE"
-
-        // TODO Phase D: set to true after plugin is registered on JetBrains Marketplace.
-        // While false, upgrade clicks open the browser instead of the native license dialog,
-        // because the RegisterPlugins action would show a broken state for an unknown product code.
-        private const val IS_MARKETPLACE_REGISTERED = false
+        private const val IS_MARKETPLACE_REGISTERED = true
 
         const val FREE_ENVIRONMENT_LIMIT = 1
         const val FREE_HISTORY_LIMIT = 10
         private const val CACHE_TTL_SECONDS = 3600L
 
-        // TODO Phase D: replace with real plugin page URL after registration
         private const val MARKETPLACE_URL = "https://plugins.jetbrains.com/plugin/32058-sonarwhale"
 
         fun getInstance(): LicenseService = ApplicationManager.getApplication().service()
